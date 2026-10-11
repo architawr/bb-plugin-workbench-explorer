@@ -348,6 +348,9 @@ export const rpcContract = defineRpcContract({
         wholeWord: z.boolean(),
         useRegex: z.boolean(),
         limit: z.number().int().min(1).max(1000),
+        include: z.string(),
+        /** Comma-separated globs the search skips. */
+        exclude: z.string(),
       })
       .strict(),
     output: z.object({

@@ -31,6 +31,8 @@ export function useSearchInFiles(root: Workspace | null) {
   const rpc = useRpc<typeof rpcContract>();
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
+  const [include, setInclude] = useState("");
+  const [exclude, setExclude] = useState("");
   const [options, setOptions] = useState<SearchOptions>(DEFAULT_OPTIONS);
   const [matches, setMatches] = useState<FileSearchMatch[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -62,6 +64,8 @@ export function useSearchInFiles(root: Workspace | null) {
           query: trimmed,
           ...options,
           limit: LIMIT,
+          include,
+          exclude,
         })
         .then((result) => {
           if (requestId.current !== id) return;
@@ -78,11 +82,13 @@ export function useSearchInFiles(root: Workspace | null) {
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [rpc, rootId, trimmed, options, refreshKey]);
+  }, [rpc, rootId, trimmed, options, refreshKey, include, exclude]);
 
-  /** A workspace switch must not show the previous one's hits. */
+  /** A pinned root or workspace switch clears everything, including filters. */
   useEffect(() => {
     requestId.current += 1;
+    setInclude("");
+    setExclude("");
     setMatches([]);
     setError(null);
     setTruncated(false);
@@ -116,6 +122,8 @@ export function useSearchInFiles(root: Workspace | null) {
   const clear = useCallback(() => {
     requestId.current += 1;
     setQuery("");
+    setInclude("");
+    setExclude("");
     setMatches([]);
     setError(null);
     setTruncated(false);
@@ -167,6 +175,10 @@ export function useSearchInFiles(root: Workspace | null) {
     setQuery,
     replacement,
     setReplacement,
+    include,
+    setInclude,
+    exclude,
+    setExclude,
     options,
     toggleOption,
     matches,

@@ -18,6 +18,7 @@ import { basename } from "node:path";
 import type { FileReplaceOutcome, FileSearchMatch } from "../contract";
 import { SKIP_FILE_NAMES } from "../contract";
 import { resolveUnderRoot, toRelativePath } from "./paths";
+import { anyGlobMatches, compileGlob, parseGlobs } from "./glob-match";
 import { mapLimit } from "./pool";
 import {
   buildMatcher,
@@ -68,10 +69,13 @@ export interface HostFileStore {
 export interface HostSearchFs extends HostSearchReader, HostFileStore {
   read(absolutePath: string): Promise<HostSearchReadResult>;
 }
-
 export interface SearchInFilesInput extends MatchOptions {
   query: string;
   limit: number;
+  /** Comma-separated globs the search keeps; undefined or "" keeps every file. */
+  include?: string;
+  /** Comma-separated globs the search skips. */
+  exclude?: string;
 }
 
 export interface SearchInFilesResult {
@@ -142,11 +146,35 @@ interface Candidate {
   absolutePath: string;
 }
 
+/** Filters the walk applies to each entry, compiled once per search. */
+class WalkFilter {
+  private readonly excludeRes: readonly RegExp[];
+  private readonly includeRes: readonly RegExp[];
+
+  constructor(exclude: readonly string[], include: readonly string[]) {
+    this.excludeRes = exclude.map(compileGlob);
+    this.includeRes = include.map(compileGlob);
+  }
+
+  /** True when the path or one of its ancestors is excluded. */
+  excludes(relativePath: string): boolean {
+    if (this.excludeRes.length === 0) return false;
+    return anyGlobMatches(this.excludeRes, relativePath);
+  }
+
+  /** True when the path matches an include pattern (or there are no includes). */
+  includes(relativePath: string): boolean {
+    if (this.includeRes.length === 0) return true;
+    return anyGlobMatches(this.includeRes, relativePath);
+  }
+}
+
 /** Breadth-first walk collecting the files to scan, bounded by file count. */
 async function collectFiles(
   fs: HostSearchReader,
   rootPath: string,
   ignoredDirs: ReadonlySet<string>,
+  filter: WalkFilter,
 ): Promise<{ files: Candidate[]; truncated: boolean }> {
   const files: Candidate[] = [];
   let truncated = false;
@@ -176,6 +204,9 @@ async function collectFiles(
         if (entry.kind === "directory") {
           if (ignoredDirs.has(entry.name)) continue;
           if (node.depth + 1 > MAX_DEPTH) continue;
+          // An excluded folder is pruned whole, not file by file.
+          const childRelative = relativeOf(rootPath, entry.absolutePath);
+          if (childRelative !== null && filter.excludes(childRelative)) continue;
           frontier.push({ absolutePath: entry.absolutePath, depth: node.depth + 1 });
           continue;
         }
@@ -187,7 +218,10 @@ async function collectFiles(
         if (BINARY_EXTENSIONS.has(extensionOf(entry.name))) continue;
         const relativePath = relativeOf(rootPath, entry.absolutePath);
         if (relativePath === null) continue;
-        files.push({ relativePath, absolutePath: entry.absolutePath });
+        if (filter.excludes(relativePath)) continue;
+        if (filter.includes(relativePath)) {
+          files.push({ relativePath, absolutePath: entry.absolutePath });
+        }
       }
       if (truncated) break;
     }
@@ -274,7 +308,16 @@ export async function searchInFiles(
   // Throws on a bad pattern; the RPC layer turns it into a visible error.
   const matcher = buildMatcher(input.query, input);
 
-  const { files, truncated: walkTruncated } = await collectFiles(fs, rootPath, ignoredDirs);
+  const filter = new WalkFilter(
+    parseGlobs(input.exclude ?? ""),
+    parseGlobs(input.include ?? ""),
+  );
+  const { files, truncated: walkTruncated } = await collectFiles(
+    fs,
+    rootPath,
+    ignoredDirs,
+    filter,
+  );
   const matches: FileSearchMatch[] = [];
   let truncated = walkTruncated;
 

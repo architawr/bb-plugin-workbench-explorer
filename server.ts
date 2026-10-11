@@ -216,6 +216,8 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
         useRegex: input.useRegex,
         limit: input.limit,
         ignoredFolders: [...await getIgnoredDirs()],
+        include: input.include,
+        exclude: input.exclude,
       }, { hostId: root.hostId });
       bb.log.info(
         `searchInFiles ${JSON.stringify(input.query)} -> ${result.matches.length} matches in ${result.filesWithMatches} files`,

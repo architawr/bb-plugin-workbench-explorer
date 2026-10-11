@@ -136,3 +136,43 @@ test("replace reports an invalid regex instead of throwing", async () => {
   });
   assert.equal(result.ok, false);
 });
+
+test("include and exclude globs decide which files are read", async () => {
+  const fs = makeFs(TREE);
+  const onlyTs = await searchInFiles(
+    fs, ROOT, { query: "foo", ...BASE, limit: 50, include: "*.ts" }, IGNORED,
+  );
+  assert.deepEqual(
+    onlyTs.matches.map((match) => match.relativePath).sort(),
+    ["src/a.ts", "src/a.ts"],
+  );
+  const noSrc = await searchInFiles(
+    fs, ROOT, { query: "foo", ...BASE, limit: 50, exclude: "src" }, IGNORED,
+  );
+  assert.deepEqual(noSrc.matches.map((match) => match.relativePath), ["README.md"]);
+});
+
+test("find-in-folder's include glob (folder/**) scopes the walk to that folder", async () => {
+  const fs = makeFs(TREE);
+  // This is exactly what "Find in Folder" writes into the include field.
+  const result = await searchInFiles(
+    fs, ROOT, { query: "foo", ...BASE, limit: 50, include: "src/**" }, IGNORED,
+  );
+  assert.deepEqual(
+    [...new Set(result.matches.map((match) => match.relativePath))].sort(),
+    ["src/a.ts"],
+  );
+  // An empty result (no files under that folder) is reported as-is, not
+  // silently widened to the whole root.
+  const empty = await searchInFiles(
+    fs, ROOT, { query: "foo", ...BASE, limit: 50, include: "docs/**" }, IGNORED,
+  );
+  assert.deepEqual(empty.matches, []);
+});
+test("exclude filters files, not just directories", async () => {
+  const fs = makeFs(TREE);
+  const result = await searchInFiles(
+    fs, ROOT, { query: "foo", ...BASE, limit: 50, exclude: "a.ts" }, IGNORED,
+  );
+  assert.deepEqual(result.matches.map((match) => match.relativePath), ["README.md"]);
+});

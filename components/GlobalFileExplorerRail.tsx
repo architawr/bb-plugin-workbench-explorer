@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useBbContext, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { acquireRailInset, syncRailInset } from "@/lib/rail-inset";
 import { usePortalScopeProps } from "@/lib/portal-scope";
 import { RAIL_EVENT, initializeRailOpen, writeStoredOpen } from "@/lib/rail-state";
+import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import { useRailWidthPx } from "@/lib/rail-width";
 import type { RootChoice, rpcContract } from "../contract";
 
@@ -73,6 +74,15 @@ export function GlobalFileExplorerRail() {
   const [rootError, setRootError] = useState<string | null>(null);
   const [refreshCount, setRefreshCount] = useState(0);
   const [tab, setTab] = useState<ExplorerTab>(readStoredTab);
+
+  // A right-clicked "Find in Folder" opens the tab that answers it. The panel
+  // reads the same request and scopes its query to that folder.
+  const findInFolder = useSyncExternalStore(subscribeFindInFolder, getFindInFolder);
+  useEffect(() => {
+    if (findInFolder === null) return;
+    setTab("search");
+    writeStoredTab("search");
+  }, [findInFolder]);
 
   useEffect(() => {
     if (settingsLoading || initialized.current) return;

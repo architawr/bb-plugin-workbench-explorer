@@ -109,3 +109,38 @@ test("files too big to grep are left alone", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("find-in-folder's include glob (folder/**) scopes ripgrep to that subfolder", async () => {
+  const root = await makeTree({
+    "src/a.ts": "foo\n",
+    "src/b.ts": "bar\n",
+    "src/nested/deep.ts": "foo\n",
+    "tests/a.test.ts": "foo\n",
+  });
+  try {
+    // This is exactly what "Find in Folder" writes into the include field.
+    const { rows } = await search(root, { query: "foo", include: "src/**" });
+    assert.deepEqual(rows.sort(), ["src/a.ts:1:0:1", "src/nested/deep.ts:1:0:1"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("include and exclude globs are passed to ripgrep and respected", async () => {
+  const root = await makeTree({
+    "src/a.ts": "foo\n",
+    "src/b.ts": "foo\n",
+    "src/c.txt": "foo\n",
+    "tests/a.test.ts": "foo\n",
+  });
+  try {
+    const onlyTs = await search(root, { query: "foo", include: "*.ts" });
+    assert.deepEqual(onlyTs.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1"]);
+    const noTests = await search(root, { query: "foo", exclude: "**/*.test.ts" });
+    assert.deepEqual(noTests.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1", "src/c.txt:1:0:1"]);
+    const noTests2 = await search(root, { query: "foo", exclude: "tests" });
+    assert.deepEqual(noTests2.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1", "src/c.txt:1:0:1"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

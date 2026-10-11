@@ -33,6 +33,7 @@ import {
   type SearchInFilesInput,
   type SearchInFilesResult,
 } from "./search-in-files";
+import { parseGlobs } from "./glob-match";
 import { buildMatcher } from "./text-match";
 
 /** The fields this walk reads out of ripgrep's JSON-lines output. */
@@ -67,6 +68,10 @@ function ripgrepArgs(
     `--max-filesize=${MAX_FILE_BYTES}`,
   ];
   for (const name of ignoredDirs) args.push("--glob", `!${escapeGlob(name)}`);
+  // The panel's include and exclude fields are globs as typed, so they reach
+  // ripgrep unescaped; the JavaScript matcher stays the authority either way.
+  for (const glob of parseGlobs(input.include ?? "")) args.push("--glob", glob);
+  for (const glob of parseGlobs(input.exclude ?? "")) args.push("--glob", `!${glob}`);
   for (const name of SKIP_FILE_NAMES) args.push("--glob", `!${escapeGlob(name)}`);
   // ripgrep calls a file binary when its first bytes say so — a short file
   // whose bytes happen to be printable is still a picture, so the same

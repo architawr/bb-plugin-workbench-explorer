@@ -19,6 +19,7 @@ import {
   subscribeChatTargets,
   type ChatTarget,
 } from "@/lib/chat-draft-bus";
+import { requestFindInFolder } from "@/lib/find-in-folder";
 import type { rpcContract, TreeEntry, Workspace } from "../contract";
 import type { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 
@@ -267,6 +268,11 @@ function TreeRow({
       });
   };
 
+  const findInFolder = () => {
+    if (!isDir) return;
+    requestFindInFolder(workspace.rootId, entry.relativePath);
+  };
+
   return (
     <div>
       <ContextMenu>
@@ -332,6 +338,12 @@ function TreeRow({
             <Icon name="FolderOpen" className="size-4" />
             Open in Explorer
           </ContextMenuItem>
+          {isDir ? (
+            <ContextMenuItem onSelect={findInFolder}>
+              <Icon name="Search" className="size-4" />
+              Find in Folder
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuItem onSelect={createFile}>
             <Icon name="FileText" className="size-4" />
             Create File
@@ -488,6 +500,14 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56">
+            <ContextMenuItem
+              onSelect={() => {
+                requestFindInFolder(workspace.rootId, "");
+              }}
+            >
+              <Icon name="Search" className="size-4" />
+              Find in Folder
+            </ContextMenuItem>
             <ContextMenuItem onSelect={createFileInRoot}>
               <Icon name="FileText" className="size-4" />
               Create File

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useBbContext } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
@@ -5,6 +6,7 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { openWorkspaceFile } from "@/lib/open-preview";
 import { surfaceNavigation } from "@/lib/surface-navigation";
+import { consumeFindInFolder } from "@/lib/find-in-folder";
 import { useSearchInFiles, type FileGroup } from "@/hooks/useSearchInFiles";
 import type { FileSearchMatch, Workspace } from "../contract";
 
@@ -114,6 +116,16 @@ function ResultGroup({
 export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
   const { threadId } = useBbContext();
   const search = useSearchInFiles(root);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Consume the pending Find-in-Folder scope exactly once on mount. The store
+  // is cleared so a tab-switch remount will not re-apply the same scope and
+  // clobber any edits the user made in the include/exclude fields.
+  useEffect(() => {
+    const scope = consumeFindInFolder();
+    if (scope === null || root === null || scope.rootId !== root.rootId) return;
+    search.setInclude(scope.folderPath === "" ? "" : `${scope.folderPath}/**`);
+    setFiltersOpen(true);
+  }, [root, search]);
 
   const openMatch = (match: FileSearchMatch) => {
     if (root === null) return;
@@ -182,6 +194,12 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
             active={search.options.useRegex}
             onClick={() => search.toggleOption("useRegex")}
           />
+          <OptionToggle
+            name="SlidersHorizontal"
+            label="Show include and exclude filters"
+            active={filtersOpen}
+            onClick={() => setFiltersOpen((open) => !open)}
+          />
         </div>
         <div className="flex items-center gap-1">
           <Icon name="Replace" className="size-3 shrink-0 text-muted-foreground" />
@@ -206,6 +224,37 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
             <Icon name="ReplaceAll" className="size-3" />
           </button>
         </div>
+        {filtersOpen ? (
+          <>
+            <div className="flex items-center gap-1">
+              <Icon name="FileAttachment" className="size-3 shrink-0 text-muted-foreground" />
+              <input
+                type="text"
+                value={search.include}
+                onChange={(event) => search.setInclude(event.target.value)}
+                placeholder="Include, comma-separated globs (e.g. **/*.ts, **/*.tsx)"
+                aria-label="Include patterns — comma-separated globs"
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 bg-transparent py-0.5 text-[11px] leading-5 text-sidebar-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <Icon name="X" className="size-3 shrink-0 text-muted-foreground" />
+              <input
+                type="text"
+                value={search.exclude}
+                onChange={(event) => search.setExclude(event.target.value)}
+                placeholder="Exclude, comma-separated globs (e.g. **/*.test.ts, **/node_modules/**)"
+                aria-label="Exclude patterns — comma-separated globs"
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 bg-transparent py-0.5 text-[11px] leading-5 text-sidebar-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          </>
+        ) : null}
+
       </div>
 
       {summary !== null ? (

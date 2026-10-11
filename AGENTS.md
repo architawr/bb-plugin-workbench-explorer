@@ -337,6 +337,8 @@ e
 | `lib/chat-path-buttons.test.ts` | Chat path button DOM scanner and anchor resolution |
 | `lib/file-type.test.ts` | File type icon detection |
 | `lib/visible-reveal.test.ts` | Visible reveal child injection |
+| `lib/find-in-folder.test.ts` | Find-in-folder scope handoff store (consume clears once) |
+| `src/glob-match.test.ts` | Include/exclude glob matching: parse, compile, ancestors |
 
 ## Code Style
 

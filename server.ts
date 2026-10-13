@@ -1,5 +1,5 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { DEFAULT_IGNORED_DIRS, rpcContract } from "./contract";
+import { rpcContract } from "./contract";
 import { hostContract } from "./host-contract";
 import type { PathProbe } from "./src/reveal";
 import { createFile } from "./src/create-file";
@@ -84,10 +84,24 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
     },
     ignoredFolders: {
       type: "string",
-      label: "Files or folders to hide by default (one per line)",
+      label: "Folders to hide by default (one per line)",
       description:
-        "Folder names to hide in the tree and search.",
-      default: "",
+        "Folder names hidden in the tree and search. Pre-filled with common " +
+        "build and dependency folders; delete a line to un-hide it.",
+      default: [
+        ".git",
+        ".claude",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        ".next",
+        ".turbo",
+        ".cache",
+        "__pycache__",
+        ".venv",
+        "venv",
+      ].join("\n"),
       experimental_multiline: true,
     },
     treeRoot: {
@@ -120,8 +134,7 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
   const getIgnoredDirs = async (): Promise<Set<string>> => {
     const values = await settings.get();
     const raw = typeof values.ignoredFolders === "string" ? values.ignoredFolders : "";
-    const user = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    return new Set<string>([...DEFAULT_IGNORED_DIRS, ...user]);
+    return new Set(raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
   };
   bb.rpc.register(rpcContract, {
     listRootChoices: async (input) => ({

@@ -3,7 +3,7 @@ import { useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { subscribeReveal } from "@/lib/reveal-bus";
 import { includeRevealedChild, type VisibleReveal } from "@/lib/visible-reveal";
-import { DEFAULT_IGNORED_DIRS, type rpcContract, type TreeEntry, type Workspace } from "../contract";
+import { type rpcContract, type TreeEntry, type Workspace } from "../contract";
 
 function ancestorChain(relativePath: string): string[] {
   const chain = [""];
@@ -34,9 +34,8 @@ export function useWorkspaceTree(root: Workspace | null) {
   const confirmDelete = values?.confirmDelete !== false;
   const ignoredFolders = useMemo(() => {
     const raw = values?.ignoredFolders;
-    if (typeof raw !== "string" || raw.trim() === "") return [...DEFAULT_IGNORED_DIRS];
-    const user = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    return [...DEFAULT_IGNORED_DIRS, ...user];
+    const str = typeof raw === "string" ? raw : "";
+    return str.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   }, [values?.ignoredFolders]);
   const [rerooted, setRerooted] = useState<Workspace | null>(null);
   const [dirs, setDirs] = useState<Record<string, DirState>>({});

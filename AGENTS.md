@@ -28,7 +28,7 @@ bun test              # Run the unit tests
 
 ### Contracts
 
-- **`contract.ts`** — Zod-based RPC contract. Defines `DEFAULT_IGNORED_DIRS`, `SKIP_DIR_NAMES`, `SKIP_FILE_NAMES`, all schemas (`treeEntrySchema`, `workspaceSchema`, `rootChoiceSchema`, `workspaceResultSchema`, `revealRootSchema`, `revealResultSchema`, `searchHitSchema`, `fileSearchMatchSchema`, `fileReplaceOutcomeSchema`, `anchorFixSchema`), and the full `rpcContract` with 19 methods.
+- **`contract.ts`** — Zod-based RPC contract. Defines `SKIP_FILE_NAMES`, all schemas (`treeEntrySchema`, `workspaceSchema`, `rootChoiceSchema`, `workspaceResultSchema`, `revealRootSchema`, `revealResultSchema`, `searchHitSchema`, `fileSearchMatchSchema`, `fileReplaceOutcomeSchema`, `anchorFixSchema`), and the full `rpcContract` with 19 methods. The default hidden-folder list lives in the `ignoredFolders` setting's `default` (see `server.ts`), not as a hardcoded constant here.
 - **`host-contract.ts`** — Host-side contract for `statPath`, `listDirectory`, `searchInFiles`, and `removePath` calls.
 
 ### Key Source Modules (`src/`)
@@ -164,9 +164,8 @@ When a path lands in another registered project, the tree **re-roots** there rat
 
 ### Skip Patterns
 
-- `DEFAULT_IGNORED_DIRS` (array, in `contract.ts`): `.git`, `.claude`, `node_modules`, `dist`, `build`, `coverage`, `.next`, `.turbo`, `.cache`, `__pycache__`, `.venv`, `venv`
-- `SKIP_DIR_NAMES` = `new Set(DEFAULT_IGNORED_DIRS)` — extended at runtime by user's `ignoredFolders` setting
-- `SKIP_FILE_NAMES` = `new Set([".DS_Store"])`
+- `ignoredFolders` setting: its `default` (in `server.ts`) is the pre-filled list `.git`, `.claude`, `node_modules`, `dist`, `build`, `coverage`, `.next`, `.turbo`, `.cache`, `__pycache__`, `.venv`, `venv`. Server `getIgnoredDirs()` and client `useWorkspaceTree` derive the skipped set from this setting alone — no hardcoded constant in `contract.ts`. The set is additive (defaults + user lines) by virtue of the default being populated; a user can delete a pre-filled line to un-hide that folder.
+- `SKIP_FILE_NAMES` = `new Set([".DS_Store"])` (file-level skips; not user-configurable)
 - `shouldSkip` in `ignore.ts` checks these against a `TreeEntry` (directories checked against ignored dirs, files against `SKIP_FILE_NAMES`)
 - Git-ignore: `git-ignore.ts` uses `git check-ignore -z --stdin` per directory; ignored entries flagged with `gitIgnored: true` on the `TreeEntry` schema
 - Controlled by `showSkipped` setting in host listing and `ignoredFolders` setting on the client
@@ -285,7 +284,7 @@ Defined in `server.ts` via `bb.settings.define`:
 | `openByDefault`  | boolean            | Show the pinned file explorer when BB opens   | `true`          | Controls rail visibility on startup              |
 | `confirmDelete`  | boolean            | Confirm before deleting files and folders     | `true`          | Safety dialog for delete/rename                  |
 | `showSkipped`    | boolean            | Show hidden files and folders                 | `false`         | Reveals `.git`, `node_modules`, etc.             |
-| `ignoredFolders` | string (multiline) | Files or folders to hide by default           | `""`            | One per line; extends `DEFAULT_IGNORED_DIRS`     |
+| `ignoredFolders` | string (multiline) | Folders to hide by default                    | (prefilled list) | Pre-filled with common build/dependency dirs (`.git`, `node_modules`, ...); one name per line; delete a line to un-hide it |
 | `treeRoot`       | string             | Root folder for personal threads              | `""`            | `~/Documents`-style path for BB personal threads |
 | `searchRoots`    | string (multiline) | Folders to search for paths mentioned in chat | `"~/Documents"` | Each folder + immediate subdirs searchable       |
 

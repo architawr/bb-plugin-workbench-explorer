@@ -5,7 +5,20 @@ import path from "node:path";
 import { test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { statHostPath } from "./host-listing";
-import { DEFAULT_IGNORED_DIRS } from "../contract";
+const DEFAULT_IGNORED_DIRS = [
+  ".git",
+  ".claude",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+  "__pycache__",
+  ".venv",
+  "venv",
+] as const;
 import { resolveInRoot, searchFilesInRoot } from "./reveal";
 import { listRootChoices } from "./workspace";
 test("pinned project root lists and searches its files while another thread is active", async () => {

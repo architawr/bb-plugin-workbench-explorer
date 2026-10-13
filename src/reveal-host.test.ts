@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { DEFAULT_IGNORED_DIRS } from "../contract";
+const DEFAULT_IGNORED_DIRS = [
+  ".git",
+  ".claude",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+  "__pycache__",
+  ".venv",
+  "venv",
+] as const;
 import { resolveInWorkspace, resolvePaths, type PathProbe } from "./reveal";
 test("chat reveal resolves on the source host when two hosts use the same root path", async () => {
   const rootPath = "/shared/project";

@@ -1,7 +1,6 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { DEFAULT_IGNORED_DIRS } from "../contract";
 import type {
   AnchorFix,
   RevealResult,

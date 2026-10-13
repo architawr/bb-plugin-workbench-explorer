@@ -4,7 +4,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { DEFAULT_IGNORED_DIRS, type RevealRoot } from "../contract";
+import { type RevealRoot } from "../contract";
+
+const DEFAULT_IGNORED_DIRS = [
+  ".git",
+  ".claude",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+  "__pycache__",
+  ".venv",
+  "venv",
+] as const;
 import { statHostPath } from "./host-listing";
 import { findByName } from "./name-index";
 import { registerRoot } from "./roots";

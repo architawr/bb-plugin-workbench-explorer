@@ -1,24 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 
-export const DEFAULT_IGNORED_DIRS = [
-  ".git",
-  ".claude",
-  "node_modules",
-  "dist",
-  "build",
-  "coverage",
-  ".next",
-  ".turbo",
-  ".cache",
-  "__pycache__",
-  ".venv",
-  "venv",
-] as const;
-
-/** Directories to skip by default; extended by the user's ignoredFolders setting. */
-export const SKIP_DIR_NAMES = new Set(DEFAULT_IGNORED_DIRS);
-
 export const SKIP_FILE_NAMES = new Set([".DS_Store"]);
 
 export const treeEntrySchema = z.object({

@@ -7,6 +7,7 @@ import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
 import { RailResizeHandle } from "@/components/RailResizeHandle";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { acquireRailInset, syncRailInset } from "@/lib/rail-inset";
 import { usePortalScopeProps } from "@/lib/portal-scope";
@@ -176,20 +177,22 @@ export function GlobalFileExplorerRail() {
         </Button>
       </div>
       <div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5 py-1">
-        <select
-          aria-label="File Explorer folder"
-          title="Pinned folder — changing threads does not change this tree"
-          value={selectedId ?? ""}
-          onChange={(event) => {
-            const id = event.target.value;
+        <SearchableSelect
+          ariaLabel="File Explorer folder"
+          triggerTitle="Pinned folder — switching threads does not change this tree"
+          value={selectedId}
+          onValueChange={(id) => {
             setSelectedId(id);
             writePinnedRoot(id);
           }}
-          className="min-w-0 flex-1 truncate bg-sidebar text-[11px] text-sidebar-foreground outline-none"
-        >
-          {selectedId === null || chosen === undefined ? <option value={selectedId ?? ""}>Choose a folder</option> : null}
-          {choices.map((choice) => <option key={choice.id} value={choice.id}>{choice.label}</option>)}
-        </select>
+          placeholder="Choose a folder"
+          searchPlaceholder="Search projects…"
+          options={choices.map((choice) => ({
+            value: choice.id,
+            label: choice.label,
+          }))}
+          triggerClassName="bg-sidebar"
+        />
         <button type="button" aria-label="Refresh folder list" title="Refresh folder list"
           className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover"
           onClick={() => setRefreshCount((count) => count + 1)}>

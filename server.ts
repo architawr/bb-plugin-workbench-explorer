@@ -86,22 +86,9 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       type: "string",
       label: "Folders to hide by default (one per line)",
       description:
-        "Folder names hidden in the tree and search. Pre-filled with common " +
-        "build and dependency folders; delete a line to un-hide it.",
-      default: [
-        ".git",
-        ".claude",
-        "node_modules",
-        "dist",
-        "build",
-        "coverage",
-        ".next",
-        ".turbo",
-        ".cache",
-        "__pycache__",
-        ".venv",
-        "venv",
-      ].join("\n"),
+        "Folder names hidden in the tree and search. Empty by default — " +
+        "add folder names (one per line) to hide them.",
+      default: "",
       experimental_multiline: true,
     },
     treeRoot: {

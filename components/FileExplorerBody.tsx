@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useBbContext, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
+import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { Icon } from "@/components/ui/icon";
@@ -28,6 +29,26 @@ type TreeModel = ReturnType<typeof useWorkspaceTree>;
 function absolutePathOf(workspace: Workspace, relativePath: string): string {
   const root = workspace.rootPath.replace(/\/+$/u, "");
   return relativePath === "" ? root : `${root}/${relativePath}`;
+}
+
+function makeCopyPathToClipboard(
+  rpc: PluginRpcClient<typeof rpcContract>,
+  workspace: Workspace,
+) {
+  return (text: string, successMessage: string): void => {
+    void rpc
+      .call("copyTextToClipboard", {
+        rootId: workspace.rootId,
+        text,
+      })
+      .then((result) => {
+        if (result.ok) toast.success(successMessage);
+        else toast.error(result.message);
+      })
+      .catch(() => {
+        toast.error("Could not copy to the clipboard.");
+      });
+  };
 }
 
 /** Folder a new file should land in: the row itself if it is a folder, else its parent. */
@@ -178,20 +199,7 @@ function TreeRow({
       });
   };
 
-  const copyPathToClipboard = (text: string, successMessage: string) => {
-    void rpc
-      .call("copyTextToClipboard", {
-        rootId: workspace.rootId,
-        text,
-      })
-      .then((result) => {
-        if (result.ok) toast.success(successMessage);
-        else toast.error(result.message);
-      })
-      .catch(() => {
-        toast.error("Could not copy to the clipboard.");
-      });
-  };
+  const copyPathToClipboard = makeCopyPathToClipboard(rpc, workspace);
 
   const createFile = () => {
     const name = window.prompt("File name:");
@@ -442,6 +450,8 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
     );
   }
 
+  const copyPathToClipboard = makeCopyPathToClipboard(rpc, workspace);
+
   const createFileInRoot = () => {
     const name = window.prompt("File name:");
     if (name === null) return;
@@ -500,14 +510,6 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-56">
-            <ContextMenuItem
-              onSelect={() => {
-                requestFindInFolder(workspace.rootId, "");
-              }}
-            >
-              <Icon name="Search" className="size-4" />
-              Find in Folder
-            </ContextMenuItem>
             <ContextMenuItem onSelect={createFileInRoot}>
               <Icon name="FileText" className="size-4" />
               Create File
@@ -515,6 +517,26 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
             <ContextMenuItem onSelect={createFolderInRoot}>
               <Icon name="FolderPlus" className="size-4" />
               Create Folder
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onSelect={() => {
+                copyPathToClipboard("", "Relative path copied");
+              }}
+            >
+              <Icon name="Copy" className="size-4" />
+              Copy Relative Path
+            </ContextMenuItem>
+            <ContextMenuItem
+              onSelect={() => {
+                copyPathToClipboard(
+                  absolutePathOf(workspace, ""),
+                  "Path copied",
+                );
+              }}
+            >
+              <Icon name="Copy" className="size-4" />
+              Copy Path
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>

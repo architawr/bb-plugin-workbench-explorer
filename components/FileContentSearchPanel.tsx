@@ -8,7 +8,7 @@ import { openWorkspaceFile } from "@/lib/open-preview";
 import { surfaceNavigation } from "@/lib/surface-navigation";
 import { consumeFindInFolder } from "@/lib/find-in-folder";
 import { useSearchInFiles, type FileGroup } from "@/hooks/useSearchInFiles";
-import type { FileSearchMatch, Workspace } from "../contract";
+import type { FileSearchMatch, Workspace } from "../shared";
 
 function OptionToggle({
   name,

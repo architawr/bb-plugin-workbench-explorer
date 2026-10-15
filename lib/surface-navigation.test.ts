@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Workspace } from "../contract";
+import type { Workspace } from "../shared";
 import { openWorkspaceFile } from "./open-preview";
 import { registerSurfaceNavigation, surfaceNavigation } from "./surface-navigation";
 

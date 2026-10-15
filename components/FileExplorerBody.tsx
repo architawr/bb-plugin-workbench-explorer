@@ -21,7 +21,8 @@ import {
   type ChatTarget,
 } from "@/lib/chat-draft-bus";
 import { requestFindInFolder } from "@/lib/find-in-folder";
-import type { rpcContract, TreeEntry, Workspace } from "../contract";
+import type { rpcContract } from "../contract";
+import type { TreeEntry, Workspace } from "../shared";
 import type { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 
 type TreeModel = ReturnType<typeof useWorkspaceTree>;

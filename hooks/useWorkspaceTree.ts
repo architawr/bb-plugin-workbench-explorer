@@ -3,7 +3,8 @@ import { useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { subscribeReveal } from "@/lib/reveal-bus";
 import { includeRevealedChild, type VisibleReveal } from "@/lib/visible-reveal";
-import { type rpcContract, type TreeEntry, type Workspace } from "../contract";
+import { type rpcContract } from "../contract";
+import type { TreeEntry, Workspace } from "../shared";
 
 function ancestorChain(relativePath: string): string[] {
   const chain = [""];

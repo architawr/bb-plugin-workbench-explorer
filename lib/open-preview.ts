@@ -1,5 +1,5 @@
 import type { useBbNavigate } from "@get-bb/plugin-sdk/app";
-import type { Workspace } from "../contract";
+import type { Workspace } from "../shared";
 
 type Navigate = ReturnType<typeof useBbNavigate>;
 

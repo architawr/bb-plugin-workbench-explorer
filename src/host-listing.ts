@@ -1,6 +1,6 @@
 import { lstat, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { TreeEntry } from "../contract";
+import type { TreeEntry } from "../shared";
 import { shouldSkip, sortEntries } from "./ignore";
 import { resolveUnderRoot } from "./paths";
 import { ignoredChildNames } from "./git-ignore";

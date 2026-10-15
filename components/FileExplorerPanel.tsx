@@ -5,7 +5,7 @@ import {
 } from "@/components/FileExplorerSearch";
 import { useFileSearch } from "@/hooks/useFileSearch";
 import { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
-import type { Workspace } from "../contract";
+import type { Workspace } from "../shared";
 
 export function FileExplorerPanel({
   root,

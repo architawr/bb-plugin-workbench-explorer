@@ -1,6 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { fileSearchMatchSchema, treeEntrySchema } from "./contract";
+import { fileSearchMatchSchema, treeEntrySchema } from "./shared";
 
 export const hostContract = defineRpcContract({
   statPath: {

@@ -15,8 +15,8 @@
  * changed underneath is refused instead of silently overwritten.
  */
 import { basename } from "node:path";
-import type { FileReplaceOutcome, FileSearchMatch } from "../contract";
-import { SKIP_FILE_NAMES } from "../contract";
+import type { FileReplaceOutcome, FileSearchMatch } from "../shared";
+import { SKIP_FILE_NAMES } from "../shared";
 import { resolveUnderRoot, toRelativePath } from "./paths";
 import { anyGlobMatches, compileGlob, parseGlobs } from "./glob-match";
 import { mapLimit } from "./pool";
@@ -214,7 +214,7 @@ async function collectFiles(
           truncated = true;
           break;
         }
-        if (SKIP_FILE_NAMES.has(entry.name)) continue;
+        if (SKIP_FILE_NAMES[entry.name] === true) continue;
         if (BINARY_EXTENSIONS.has(extensionOf(entry.name))) continue;
         const relativePath = relativeOf(rootPath, entry.absolutePath);
         if (relativePath === null) continue;

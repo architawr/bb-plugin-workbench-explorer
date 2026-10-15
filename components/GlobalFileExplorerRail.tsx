@@ -14,7 +14,8 @@ import { usePortalScopeProps } from "@/lib/portal-scope";
 import { RAIL_EVENT, initializeRailOpen, writeStoredOpen } from "@/lib/rail-state";
 import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import { useRailWidthPx } from "@/lib/rail-width";
-import type { RootChoice, rpcContract } from "../contract";
+import type { RootChoice } from "../shared";
+import type { rpcContract } from "../contract";
 
 const ROOT_STORAGE_KEY = "bb-plugin-file-explorer:pinned-root";
 

@@ -7,7 +7,7 @@ import type {
   RevealRoot,
   SearchHit,
   Workspace,
-} from "../contract";
+} from "../shared";
 import { findByName, searchByQuery } from "./name-index";
 import { mapLimit } from "./pool";
 import { resolveUnderRoot, toRelativePath } from "./paths";

@@ -1,4 +1,4 @@
-import type { TreeEntry } from "../contract";
+import type { TreeEntry } from "../shared";
 import { resolveUnderRoot } from "./paths";
 import { resolveRoot } from "./roots";
 

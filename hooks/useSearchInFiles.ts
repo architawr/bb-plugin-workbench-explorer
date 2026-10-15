@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import type { FileSearchMatch, rpcContract, Workspace } from "../contract";
+import type { rpcContract } from "../contract";
+import type { FileSearchMatch, Workspace } from "../shared";
 
 /** Two letters match half a codebase; the query only pays off from three. */
 const MIN_QUERY_LENGTH = 2;

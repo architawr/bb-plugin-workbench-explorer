@@ -10,7 +10,8 @@ import { toast } from "sonner";
 import { openWorkspaceFile } from "@/lib/open-preview";
 import { surfaceNavigation } from "@/lib/surface-navigation";
 import { subscribeSearchFocus } from "@/lib/search-focus-bus";
-import type { rpcContract, SearchHit } from "../contract";
+import type { rpcContract } from "../contract";
+import type { SearchHit } from "../shared";
 import type { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 
 /** One letter matches half the disk; two is where a list starts to mean something. */

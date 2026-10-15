@@ -18,7 +18,7 @@
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
 import { createTimedCache, PATH_CACHE_TTL_MS } from "./timed-cache";
-import type { AnchorFix } from "../contract";
+import type { AnchorFix } from "../shared";
 
 const BUTTON_ATTR = "data-file-explorer-reveal";
 const PATH_ATTR = "fileExplorerRevealPath";

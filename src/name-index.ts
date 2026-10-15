@@ -23,7 +23,7 @@
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import type { RevealRoot } from "../contract";
+import type { RevealRoot } from "../shared";
 import { mapLimit } from "./pool";
 
 /**

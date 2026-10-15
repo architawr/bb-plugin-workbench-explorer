@@ -20,8 +20,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { ripgrep } from "ripgrep";
-import type { FileSearchMatch } from "../contract";
-import { SKIP_FILE_NAMES } from "../contract";
+import type { FileSearchMatch } from "../shared";
+import { SKIP_FILE_NAMES } from "../shared";
 import {
   BINARY_EXTENSIONS,
   matchLine,
@@ -72,7 +72,7 @@ function ripgrepArgs(
   // ripgrep unescaped; the JavaScript matcher stays the authority either way.
   for (const glob of parseGlobs(input.include ?? "")) args.push("--glob", glob);
   for (const glob of parseGlobs(input.exclude ?? "")) args.push("--glob", `!${glob}`);
-  for (const name of SKIP_FILE_NAMES) args.push("--glob", `!${escapeGlob(name)}`);
+  for (const name of Object.keys(SKIP_FILE_NAMES)) args.push("--glob", `!${escapeGlob(name)}`);
   // ripgrep calls a file binary when its first bytes say so — a short file
   // whose bytes happen to be printable is still a picture, so the same
   // extensions the walk refuses are refused here.

@@ -25,6 +25,7 @@
     "host.ts",
     "host-contract.ts",
     "app.tsx",
+    "shared.ts",
     "contract.ts",
     "src",
     "components",

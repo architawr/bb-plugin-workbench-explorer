@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import type { SearchHit } from "../contract";
+import type { SearchHit } from "../shared";
 import type { useFileSearch } from "@/hooks/useFileSearch";
 
 type SearchModel = ReturnType<typeof useFileSearch>;

@@ -28,7 +28,8 @@ bun test              # Run the unit tests
 
 ### Contracts
 
-- **`contract.ts`** — Zod-based RPC contract. Defines `SKIP_FILE_NAMES`, all schemas (`treeEntrySchema`, `workspaceSchema`, `rootChoiceSchema`, `workspaceResultSchema`, `revealRootSchema`, `revealResultSchema`, `searchHitSchema`, `fileSearchMatchSchema`, `fileReplaceOutcomeSchema`, `anchorFixSchema`), and the full `rpcContract` with 19 methods. The `ignoredFolders` setting's `default` (see `server.ts`) is empty — users add folder names (one per line) to hide them; this list is not hardcoded here.
+- **`shared.ts`** — SDK-free schemas, types, and constants shared between server and frontend. Browser-safe; imported by all frontend components, hooks, and lib modules. Exports `SKIP_FILE_NAMES` (a `Record<string, true>`), all Zod schemas (`treeEntrySchema`, `workspaceSchema`, `rootChoiceSchema`, `workspaceResultSchema`, `revealRootSchema`, `revealResultSchema`, `searchHitSchema`, `fileSearchMatchSchema`, `fileReplaceOutcomeSchema`, `anchorFixSchema`), and all their inferred TypeScript types.
+- **`contract.ts`** — Server RPC contract. Imports schemas from `shared.ts` and uses `defineRpcContract` (server-only `@get-bb/plugin-sdk`) to wire the 19 RPC methods. Frontend code imports only types from here via `import type`.
 - **`host-contract.ts`** — Host-side contract for `statPath`, `listDirectory`, `searchInFiles`, and `removePath` calls.
 
 ### Key Source Modules (`src/`)

@@ -486,6 +486,20 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
         toast.error("Could not create the folder.");
       });
   };
+  
+  const openInFinder = () => {
+    void rpc
+      .call("revealInExplorer", {
+        rootId: workspace.rootId,
+        relativePath: "",
+      })
+      .then((result) => {
+        if (!result.ok) toast.error(result.message);
+      })
+      .catch(() => {
+        toast.error("Could not open in Explorer.");
+      });
+  };
 
   const root = tree.dirs[""];
   return (
@@ -518,6 +532,10 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
             <ContextMenuItem onSelect={createFolderInRoot}>
               <Icon name="FolderPlus" className="size-4" />
               Create Folder
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={openInFinder}>
+              <Icon name="FolderOpen" className="size-4" />
+              Open in Explorer
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem

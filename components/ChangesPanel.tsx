@@ -45,7 +45,7 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
     const opened = navigation?.openThreadPanel({
       actionId: FILE_DIFF_ACTION_ID,
       title: `Diff · ${splitPath(relativePath).name}`,
-      params: { rootId: root.rootId, relativePath },
+      params: { rootId: root.rootId, relativePath, hostId: root.hostId, rootPath: root.rootPath },
     }) ?? false;
     if (!opened) toast.error("Open a thread to see diffs.");
   };
@@ -75,7 +75,7 @@ export function ChangesPanel({ root }: { root: Workspace | null }) {
                 title={`${entry.path} · ${STATUS_LABEL[entry.status]} — click for the diff`}
                 className="flex min-w-0 flex-1 items-center gap-1 py-px pl-1.5 pr-1 text-left text-[11px] leading-5"
               >
-                <FileTypeIcon name={name} className="size-3" />
+                <FileTypeIcon name={name} className="size-4" />
                 <span className={cn("min-w-0 shrink truncate", STATUS_TEXT[entry.status], isDeleted && "line-through")}>
                   {name}
                 </span>

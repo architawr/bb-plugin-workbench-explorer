@@ -8,6 +8,7 @@ import { deleteEntry } from "./src/delete-entry";
 import { renameEntry } from "./src/rename-entry";
 import { copyTextToClipboard, revealInExplorer } from "./src/os-actions";
 import { resolveRoot } from "./src/roots";
+import { registerMaterialIconRoute } from "./src/material-icons-route";
 import { invalidateListings, listDir } from "./src/listing";
 import {
   makeSearchRootsGetter,
@@ -28,6 +29,7 @@ export { rpcContract } from "./contract";
 
 export default async function plugin(bb: BbPluginApi): Promise<void> {
   bb.log.info("loaded");
+  registerMaterialIconRoute(bb);
   const host = bb.hosts.experimental_client({ contract: hostContract });
   const probe: PathProbe = (hostId, rootPath, relativePath) =>
     host.call("statPath", { rootPath, relativePath }, { hostId });

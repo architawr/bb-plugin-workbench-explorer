@@ -2,7 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useBbContext, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { FileTypeIcon } from "@/components/FileTypeIcon";
+import { FileTypeIcon, FolderTypeIcon } from "@/components/FileTypeIcon";
 import { STATUS_BADGE, STATUS_LABEL, STATUS_TEXT } from "@/lib/git-status";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -321,10 +321,16 @@ function TreeRow({
                 />
               ) : null}
             </span>
-            {isDir ? null : (
+            {isDir ? (
+              <FolderTypeIcon
+                name={entry.name}
+                expanded={isOpen}
+                className={cn("size-4", isIgnored && "opacity-45")}
+              />
+            ) : (
               <FileTypeIcon
                 name={entry.name}
-                className={cn("size-3", isIgnored && "opacity-45")}
+                className={cn("size-4", isIgnored && "opacity-45")}
               />
             )}
             <span

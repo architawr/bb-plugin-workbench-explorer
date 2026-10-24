@@ -11,15 +11,26 @@ const POLL_MS = 3000;
 export interface FileDiffParams {
   rootId: string;
   relativePath: string;
+  /**
+   * Root ids live in the server's memory, so a tab restored after a restart
+   * finds its root again by these. Optional: tabs opened before they existed
+   * still parse.
+   */
+  hostId?: string;
+  rootPath?: string;
 }
 
 /** Tab params round-trip through persistence, so they are checked, not trusted. */
 export function parseFileDiffParams(params: JsonValue | null): FileDiffParams | null {
   if (params === null || typeof params !== "object" || Array.isArray(params)) return null;
-  const { rootId, relativePath } = params as Record<string, JsonValue>;
+  const { rootId, relativePath, hostId, rootPath } = params as Record<string, JsonValue>;
   if (typeof rootId !== "string" || rootId === "") return null;
   if (typeof relativePath !== "string" || relativePath === "") return null;
-  return { rootId, relativePath };
+  return {
+    rootId,
+    relativePath,
+    ...(typeof hostId === "string" && typeof rootPath === "string" ? { hostId, rootPath } : {}),
+  };
 }
 
 type DiffState =
@@ -27,21 +38,39 @@ type DiffState =
   | { kind: "ready"; patch: string | null }
   | { kind: "error"; message: string };
 
-export function FileDiffPanel({ params }: { threadId: string; params: JsonValue | null }) {
+export function FileDiffPanel({ threadId, params }: { threadId: string; params: JsonValue | null }) {
   const rpc = useRpc<typeof rpcContract>();
   const target = parseFileDiffParams(params);
   const [state, setState] = useState<DiffState>({ kind: "loading" });
   const [view, setView] = useState<"unified" | "split">("unified");
 
-  const rootId = target?.rootId ?? null;
   const relativePath = target?.relativePath ?? null;
+  const hostId = target?.hostId ?? null;
+  const rootPath = target?.rootPath ?? null;
+  const [rootId, setRootId] = useState<string | null>(target?.rootId ?? null);
+  useEffect(() => setRootId(target?.rootId ?? null), [target?.rootId]);
+
   useEffect(() => {
     if (rootId === null || relativePath === null) return;
     let cancelled = false;
+    let reresolved = false;
+    // The server forgot the root (a restart, a plugin reload): look it up
+    // again among the roots the server offers, by the path it had.
+    const reresolve = async (): Promise<boolean> => {
+      if (reresolved || hostId === null || rootPath === null) return false;
+      reresolved = true;
+      const { choices } = await rpc.call("listRootChoices", { currentThreadId: threadId, pinnedThreadId: null });
+      const match = choices.find((choice) =>
+        choice.workspace.hostId === hostId && choice.workspace.rootPath === rootPath);
+      if (match === undefined || cancelled) return false;
+      setRootId(match.workspace.rootId);
+      return true;
+    };
     const load = () => {
       if (document.visibilityState === "hidden") return;
       rpc.call("gitDiff", { rootId, relativePath })
-        .then((result) => {
+        .then(async (result) => {
+          if (!result.ok && await reresolve()) return;
           if (cancelled) return;
           setState((current) => {
             const next: DiffState = result.ok
@@ -63,7 +92,7 @@ export function FileDiffPanel({ params }: { threadId: string; params: JsonValue 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [rpc, rootId, relativePath]);
+  }, [rpc, rootId, relativePath, hostId, rootPath, threadId]);
 
   if (target === null) {
     return <p className="p-4 text-sm text-muted-foreground">Open a file from the File Explorer's Changes tab to see its diff.</p>;

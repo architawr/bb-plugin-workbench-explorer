@@ -62,5 +62,14 @@
     "quick-open",
     "search-and-replace",
     "material-icons"
-  ]
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/architawr/bb-plugin-workbench-explorer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/architawr/bb-plugin-workbench-explorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/architawr/bb-plugin-workbench-explorer/issues"
+  }
 }

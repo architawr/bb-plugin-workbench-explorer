@@ -14,8 +14,10 @@ Files open in BB's own editor (the built-in File Editor), so there is nothing ne
 
 ## Install
 
+Search **Workbench Explorer** in BB's plugin store, or:
+
 ```sh
-bb plugin install /path/to/bb-plugin-workbench-explorer
+bb plugin install git:https://github.com/architawr/bb-plugin-workbench-explorer.git@^0.3.0
 ```
 
 ## Keyboard
@@ -89,6 +91,6 @@ bb plugin reload workbench-explorer
 
 ## Credits and licence
 
-Workbench Explorer grew out of [bb-plugin-file-explorer](https://github.com/mifhud/bb-plugin-file-explorer) by [mifhud](https://github.com/mifhud), itself based on [bb-plugin-file-tree](https://github.com/fzrx-ego/bb-plugin-file-tree) by [fzrx-ego](https://github.com/fzrx-ego): the rail, the folder picker, chat path reveal and the first search and replace are theirs. Neither project states a licence, so this one does not grant one either until they do.
+Workbench Explorer grew out of [bb-plugin-file-explorer](https://github.com/mifhud/bb-plugin-file-explorer) by [mifhud](https://github.com/mifhud), itself based on [bb-plugin-file-tree](https://github.com/fzrx-ego/bb-plugin-file-tree) by [fzrx-ego](https://github.com/fzrx-ego): the rail, the folder picker, chat path reveal and the first search and replace come from them.
 
-File and folder icons are the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme), MIT — see `vendor/material-icon-theme/LICENSE`.
+MIT — see `LICENSE`. File and folder icons are the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme), MIT — see `vendor/material-icon-theme/LICENSE`.

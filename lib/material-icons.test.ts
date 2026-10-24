@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { fileIconId, folderIconId } from "./material-icons";
 
 test("file names win over extensions, and the longest extension wins", () => {

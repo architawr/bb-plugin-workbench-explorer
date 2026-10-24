@@ -19,6 +19,21 @@ export const treeEntrySchema = z.object({
 });
 export type TreeEntry = z.infer<typeof treeEntrySchema>;
 
+export const gitStatusEntrySchema = z.object({
+  /** Relative to the explorer root. */
+  path: z.string(),
+  status: z.enum(["conflicted", "deleted", "modified", "renamed", "added", "untracked"]),
+});
+
+export const gitStatusResultSchema = z.object({
+  /** False outside a work tree, or on a machine without git. */
+  isRepository: z.boolean(),
+  entries: z.array(gitStatusEntrySchema),
+  /** The repository had more changes than the explorer colours. */
+  truncated: z.boolean(),
+});
+export type GitStatusResult = z.infer<typeof gitStatusResultSchema>;
+
 export const workspaceSchema = z.object({
   /**
    * Null when the root on screen is not this thread's environment — a reveal

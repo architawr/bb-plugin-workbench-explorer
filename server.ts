@@ -203,6 +203,19 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       if (result.ok) invalidateListings(input.rootId);
       return result;
     },
+    gitStatus: async ({ rootId }) => {
+      const root = resolveRoot(rootId);
+      if (root === undefined) return { isRepository: false, entries: [], truncated: false };
+      return host.call("gitStatus", { rootPath: root.rootPath }, { hostId: root.hostId });
+    },
+    gitDiff: async ({ rootId, relativePath }) => {
+      const root = resolveRoot(rootId);
+      if (root === undefined) {
+        return { ok: false as const, message: "This diff is out of date. Open it again from the Changes tab." };
+      }
+      const { patch } = await host.call("gitDiff", { rootPath: root.rootPath, relativePath }, { hostId: root.hostId });
+      return { ok: true as const, patch };
+    },
     searchInFiles: async (input) => {
       const root = resolveRoot(input.rootId);
       if (root === undefined) {

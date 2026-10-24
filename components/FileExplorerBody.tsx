@@ -3,6 +3,7 @@ import { useBbContext, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
+import { STATUS_BADGE, STATUS_LABEL, STATUS_TEXT } from "@/lib/git-status";
 import { Icon } from "@/components/ui/icon";
 import {
   ContextMenu,
@@ -141,6 +142,9 @@ function TreeRow({
   // path, and says so in the tooltip. A label on every ignored row would cost
   // the name the narrow rail needs.
   const isIgnored = entry.gitIgnored === true;
+  // VS Code's Git decoration: the name takes the change's colour, a file ends
+  // with its status letter, and a folder holding changes ends with a dot.
+  const gitStatus = isIgnored ? undefined : tree.gitStatus.get(entry.relativePath);
   const rowRef = useRef<HTMLButtonElement>(null);
 
   // A reveal can land far below the fold, so bring the row into view once it
@@ -293,7 +297,9 @@ function TreeRow({
             title={
               isIgnored
                 ? `${entry.relativePath} — ignored by git`
-                : entry.relativePath
+                : gitStatus !== undefined
+                  ? `${entry.relativePath} · ${isDir ? "Contains changes" : STATUS_LABEL[gitStatus]}`
+                  : entry.relativePath
             }
             className={cn(
               "flex w-full min-w-0 items-center gap-0.5 rounded-[3px] py-px pr-1 text-left text-[11px] leading-5",
@@ -325,10 +331,22 @@ function TreeRow({
               className={cn(
                 "min-w-0 flex-1 truncate",
                 isIgnored && "text-muted-foreground/50",
+                gitStatus !== undefined && STATUS_TEXT[gitStatus],
               )}
             >
               {entry.name}
             </span>
+            {gitStatus === undefined ? null : (
+              <span
+                aria-label={isDir ? "Contains changes" : STATUS_LABEL[gitStatus]}
+                className={cn(
+                  "shrink-0 pl-1 font-mono text-[10px] leading-5",
+                  STATUS_TEXT[gitStatus],
+                )}
+              >
+                {isDir ? "•" : STATUS_BADGE[gitStatus]}
+              </span>
+            )}
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-56">

@@ -1,6 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { fileSearchMatchSchema, treeEntrySchema } from "./shared";
+import { fileSearchMatchSchema, gitStatusResultSchema, treeEntrySchema } from "./shared";
 
 export const hostContract = defineRpcContract({
   statPath: {
@@ -39,6 +39,15 @@ export const hostContract = defineRpcContract({
       truncated: z.boolean(),
       filesWithMatches: z.number().int().nonnegative(),
     }).strict(),
+  },
+  /** Working-tree status, run with the machine's own git where the root lives. */
+  gitStatus: {
+    input: z.object({ rootPath: z.string().min(1) }).strict(),
+    output: gitStatusResultSchema,
+  },
+  gitDiff: {
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1) }).strict(),
+    output: z.object({ patch: z.string().nullable() }).strict(),
   },
   removePath: {
     input: z.object({

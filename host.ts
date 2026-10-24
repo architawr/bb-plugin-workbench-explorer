@@ -2,6 +2,8 @@ import { experimental_defineHostEntry } from "@get-bb/plugin-sdk/host";
 import { hostContract } from "./host-contract";
 import { listHostDirectory, removeHostPath, statHostPath } from "./src/host-listing";
 import { searchHostInFiles } from "./src/host-search";
+import { hostGitDiff, hostGitStatus } from "./src/host-git-status";
+import { assertSafeRelative } from "./src/paths";
 
 export default experimental_defineHostEntry({
   contract: hostContract,
@@ -12,5 +14,15 @@ export default experimental_defineHostEntry({
     searchInFiles: ({ rootPath, ignoredFolders, ...input }) =>
       searchHostInFiles(rootPath, input, new Set(ignoredFolders)),
     removePath: ({ rootPath, relativePath }) => removeHostPath(rootPath, relativePath),
+    gitStatus: ({ rootPath }) => hostGitStatus(rootPath),
+    gitDiff: async ({ rootPath, relativePath }) => {
+      // `--no-index` would diff any file on the machine, so the path must stay
+      // inside the root.
+      assertSafeRelative(relativePath);
+      if (relativePath.startsWith("/") || relativePath.startsWith("\\") || /^[A-Za-z]:/u.test(relativePath)) {
+        throw new Error("path escapes the workspace");
+      }
+      return { patch: await hostGitDiff(rootPath, relativePath) };
+    },
   },
 });

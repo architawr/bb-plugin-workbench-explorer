@@ -4,6 +4,7 @@ import {
   anchorFixSchema,
   fileReplaceOutcomeSchema,
   fileSearchMatchSchema,
+  gitStatusResultSchema,
   revealResultSchema,
   rootChoiceSchema,
   searchHitSchema,
@@ -12,6 +13,19 @@ import {
 } from "./shared";
 
 export const rpcContract = defineRpcContract({
+  /** Uncommitted changes under a root, for colouring the tree and the Changes tab. */
+  gitStatus: {
+    input: z.object({ rootId: z.string().min(1) }).strict(),
+    output: gitStatusResultSchema,
+  },
+  /** One file's uncommitted change as a unified patch; null when there is none. */
+  gitDiff: {
+    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1).max(4096) }).strict(),
+    output: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), patch: z.string().nullable() }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  },
   listRootChoices: {
     input: z.object({
       currentThreadId: z.string().min(1).nullable(),

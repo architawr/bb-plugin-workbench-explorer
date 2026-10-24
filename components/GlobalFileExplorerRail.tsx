@@ -6,6 +6,8 @@ import { Icon } from "@/components/ui/icon";
 import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
+import { ChangesPanel } from "@/components/ChangesPanel";
+import { useGitStatus } from "@/hooks/useGitStatus";
 import { RailResizeHandle } from "@/components/RailResizeHandle";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
@@ -21,13 +23,14 @@ import type { rpcContract } from "../contract";
 
 const ROOT_STORAGE_KEY = "bb-plugin-file-explorer:pinned-root";
 
-/** The two views the rail carries: names, or the text inside them. */
-type ExplorerTab = "files" | "search";
+/** The views the rail carries: names, the text inside them, and what changed. */
+type ExplorerTab = "files" | "search" | "changes";
 const TAB_STORAGE_KEY = "bb-plugin-file-explorer:tab";
 
 function readStoredTab(): ExplorerTab {
   try {
-    return localStorage.getItem(TAB_STORAGE_KEY) === "search" ? "search" : "files";
+    const stored = localStorage.getItem(TAB_STORAGE_KEY);
+    return stored === "search" || stored === "changes" ? stored : "files";
   } catch {
     return "files";
   }
@@ -155,6 +158,7 @@ export function GlobalFileExplorerRail() {
   }, [rpc, threadId, projectId, pinnedThreadId, selectedId, refreshCount, values?.treeRoot]);
 
   const chosen = choices.find((choice) => choice.id === selectedId);
+  const changeCount = useGitStatus(chosen?.workspace.rootId ?? null).result.entries.length;
   const railOpen = ready && open;
   useLayoutEffect(() => {
     if (!railOpen || compact) {
@@ -238,7 +242,8 @@ export function GlobalFileExplorerRail() {
         {(
           [
             { id: "files", icon: "FileText", label: "Files" },
-            { id: "search", icon: "Search", label: "Search text" },
+            { id: "search", icon: "Search", label: "Search" },
+            { id: "changes", icon: "GitBranch", label: "Changes" },
           ] as const
         ).map((item) => (
           <button
@@ -258,7 +263,11 @@ export function GlobalFileExplorerRail() {
             )}
           >
             <Icon name={item.icon} className="size-3.5 shrink-0" />
-            <span className="truncate">{item.label}</span>
+            {/* Three labels do not fit a narrow rail; the icons and tooltips still do. */}
+            {railWidthPx < 260 ? null : <span className="truncate">{item.label}</span>}
+            {item.id === "changes" && changeCount > 0 ? (
+              <span className="shrink-0 rounded-full bg-state-active px-1 font-mono text-[9px] leading-3.5">{changeCount}</span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -266,6 +275,8 @@ export function GlobalFileExplorerRail() {
       {loadingRoots && choices.length === 0 ? <p className="px-2 py-2 text-[11px] text-muted-foreground">Loading folders…</p> : null}
       {tab === "files" ? (
         <FileExplorerPanel root={chosen?.workspace ?? null} />
+      ) : tab === "changes" ? (
+        <ChangesPanel root={chosen?.workspace ?? null} />
       ) : (
         <FileContentSearchPanel root={chosen?.workspace ?? null} />
       )}

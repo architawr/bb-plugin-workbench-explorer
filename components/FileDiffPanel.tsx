@@ -1,0 +1,107 @@
+import { useEffect, useState } from "react";
+import { experimental_Diff as Diff, useRpc, type JsonValue } from "@get-bb/plugin-sdk/app";
+import { cn } from "@/lib/utils";
+import type { rpcContract } from "../contract";
+
+export const FILE_DIFF_ACTION_ID = "file-diff";
+
+/** An agent may still be editing the file, so the diff follows it. */
+const POLL_MS = 3000;
+
+export interface FileDiffParams {
+  rootId: string;
+  relativePath: string;
+}
+
+/** Tab params round-trip through persistence, so they are checked, not trusted. */
+export function parseFileDiffParams(params: JsonValue | null): FileDiffParams | null {
+  if (params === null || typeof params !== "object" || Array.isArray(params)) return null;
+  const { rootId, relativePath } = params as Record<string, JsonValue>;
+  if (typeof rootId !== "string" || rootId === "") return null;
+  if (typeof relativePath !== "string" || relativePath === "") return null;
+  return { rootId, relativePath };
+}
+
+type DiffState =
+  | { kind: "loading" }
+  | { kind: "ready"; patch: string | null }
+  | { kind: "error"; message: string };
+
+export function FileDiffPanel({ params }: { threadId: string; params: JsonValue | null }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const target = parseFileDiffParams(params);
+  const [state, setState] = useState<DiffState>({ kind: "loading" });
+  const [view, setView] = useState<"unified" | "split">("unified");
+
+  const rootId = target?.rootId ?? null;
+  const relativePath = target?.relativePath ?? null;
+  useEffect(() => {
+    if (rootId === null || relativePath === null) return;
+    let cancelled = false;
+    const load = () => {
+      if (document.visibilityState === "hidden") return;
+      rpc.call("gitDiff", { rootId, relativePath })
+        .then((result) => {
+          if (cancelled) return;
+          setState((current) => {
+            const next: DiffState = result.ok
+              ? { kind: "ready", patch: result.patch }
+              : { kind: "error", message: result.message };
+            // Polling must not re-render the diff when nothing changed.
+            if (current.kind === "ready" && next.kind === "ready" && current.patch === next.patch) return current;
+            return next;
+          });
+        })
+        .catch((cause: unknown) => {
+          if (!cancelled) setState({ kind: "error", message: cause instanceof Error ? cause.message : String(cause) });
+        });
+    };
+    setState({ kind: "loading" });
+    load();
+    const timer = setInterval(load, POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [rpc, rootId, relativePath]);
+
+  if (target === null) {
+    return <p className="p-4 text-sm text-muted-foreground">Open a file from the File Explorer's Changes tab to see its diff.</p>;
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs" title={target.relativePath}>
+          {target.relativePath}
+        </span>
+        <div className="flex shrink-0 rounded-md border border-border p-0.5">
+          {(["unified", "split"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={view === mode}
+              onClick={() => setView(mode)}
+              className={cn(
+                "rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-state-hover",
+                view === mode && "bg-state-active text-foreground",
+              )}
+            >
+              {mode === "unified" ? "Inline" : "Side by side"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {state.kind === "loading" ? (
+          <p className="p-4 text-sm text-muted-foreground">Loading diff…</p>
+        ) : state.kind === "error" ? (
+          <p className="p-4 text-sm text-destructive">{state.message}</p>
+        ) : state.patch === null ? (
+          <p className="p-4 text-sm text-muted-foreground">No uncommitted changes in this file.</p>
+        ) : (
+          <Diff patch={state.patch} path={target.relativePath} view={view} />
+        )}
+      </div>
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import { useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { subscribeReveal } from "@/lib/reveal-bus";
 import { includeRevealedChild, type VisibleReveal } from "@/lib/visible-reveal";
+import { refreshGitStatus, useGitStatus } from "@/hooks/useGitStatus";
 import { type rpcContract } from "../contract";
 import type { TreeEntry, Workspace } from "../shared";
 
@@ -58,6 +59,7 @@ export function useWorkspaceTree(root: Workspace | null) {
   const activeRef = useRef(active);
   activeRef.current = active;
   const activeRootId = active?.rootId ?? "";
+  const git = useGitStatus(active?.rootId ?? null);
   const stateKey = `${activeRootId}\n${showSkipped}\n${ignoredFolders.join("|")}`;
   const stateKeyRef = useRef(stateKey);
   stateKeyRef.current = stateKey;
@@ -198,6 +200,7 @@ export function useWorkspaceTree(root: Workspace | null) {
     setExpanded((prev) => new Set([...prev, ...folders]));
     await loadDir(workspace, folders[folders.length - 1] ?? "");
     setSelected(relativePath);
+    refreshGitStatus(workspace.rootId);
   }, [loadDir]);
 
   const forgetPath = useCallback(async (relativePath: string) => {
@@ -209,6 +212,7 @@ export function useWorkspaceTree(root: Workspace | null) {
     const slash = relativePath.lastIndexOf("/");
     await loadDir(workspace, slash === -1 ? "" : relativePath.slice(0, slash));
     setSelected((current) => current === relativePath ? null : current);
+    refreshGitStatus(workspace.rootId);
   }, [loadDir]);
 
   const reload = useCallback(() => {
@@ -222,6 +226,7 @@ export function useWorkspaceTree(root: Workspace | null) {
     const current = activeRef.current;
     if (current === null) return;
     for (const path of expanded) void loadDir(current, path);
+    refreshGitStatus(current.rootId);
   }, [expanded, loadDir, rerooted]);
   return {
     confirmDelete,
@@ -229,6 +234,7 @@ export function useWorkspaceTree(root: Workspace | null) {
     active,
     isRerooted: rerooted !== null,
     dirs: visibleDirs,
+    gitStatus: git.byPath,
     expanded,
     selected,
     setSelected,

@@ -3,6 +3,7 @@ import { FileExplorerHeaderAction } from "@/components/FileExplorerHeaderAction"
 import { GlobalFileExplorerRail } from "@/components/GlobalFileExplorerRail";
 import { NewThreadFileExplorerAction } from "@/components/NewThreadFileExplorerAction";
 import { ChatDraftBridge } from "@/components/ChatDraftBridge";
+import { FILE_DIFF_ACTION_ID, FileDiffPanel } from "@/components/FileDiffPanel";
 import { requestSearchFocus } from "@/lib/search-focus-bus";
 import { toggleRailOpen, writeStoredOpen } from "@/lib/rail-state";
 
@@ -13,6 +14,13 @@ export default definePluginApp((app) => {
     id: "file-explorer-toggle",
     title: "File Explorer",
     component: ({ threadId }) => <FileExplorerHeaderAction threadId={threadId} />,
+  });
+
+  app.slots.threadPanelAction({
+    id: FILE_DIFF_ACTION_ID,
+    title: "File diff",
+    layout: "flush",
+    component: FileDiffPanel,
   });
 
   app.slots.sidebarFooterAction({

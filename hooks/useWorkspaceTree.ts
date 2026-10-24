@@ -23,6 +23,17 @@ export interface Revealed {
   isDirectory: boolean;
 }
 
+/** An inline name field in the tree: renaming a row, or naming a new one. */
+export type TreeEditing =
+  | { kind: "rename"; path: string; isDirectory: boolean }
+  | { kind: "create"; parent: string; type: "file" | "folder" };
+
+/** What the keyboard can ask a row to do; each mounted row registers its own. */
+export interface RowActions {
+  open(): void;
+  remove(): void;
+}
+
 type DirState =
   | { status: "loading" }
   | { status: "ready"; entries: TreeEntry[] }
@@ -46,6 +57,8 @@ export function useWorkspaceTree(root: Workspace | null) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set([""]));
   const [selected, setSelected] = useState<string | null>(null);
   const [visibleReveal, setVisibleReveal] = useState<VisibleReveal | null>(null);
+  const [editing, setEditing] = useState<TreeEditing | null>(null);
+  const rowActions = useRef(new Map<string, RowActions>());
 
   const pinnedKey = root === null ? "" : `${root.hostId}\n${root.rootPath}`;
   useEffect(() => {
@@ -53,6 +66,7 @@ export function useWorkspaceTree(root: Workspace | null) {
     setExpanded(new Set([""]));
     setSelected(null);
     setVisibleReveal(null);
+    setEditing(null);
   }, [pinnedKey]);
 
   const active = rerooted ?? root;
@@ -192,6 +206,22 @@ export function useWorkspaceTree(root: Workspace | null) {
     });
   }, []);
 
+  const setDirExpanded = useCallback((relativePath: string, open: boolean) => {
+    setExpanded((prev) => {
+      if (prev.has(relativePath) === open) return prev;
+      const next = new Set(prev);
+      if (open) next.add(relativePath);
+      else next.delete(relativePath);
+      return next;
+    });
+  }, []);
+
+  /** Open the folder a new entry goes into, then show the name field at its top. */
+  const startCreate = useCallback((parent: string, type: "file" | "folder") => {
+    if (parent !== "") setDirExpanded(parent, true);
+    setEditing({ kind: "create", parent, type });
+  }, [setDirExpanded]);
+
   const showCreated = useCallback(async (relativePath: string) => {
     const workspace = activeRef.current;
     if (workspace === null) return;
@@ -240,6 +270,11 @@ export function useWorkspaceTree(root: Workspace | null) {
     setSelected,
     reveal,
     toggleDir,
+    setDirExpanded,
+    editing,
+    setEditing,
+    startCreate,
+    rowActions: rowActions.current,
     showCreated,
     forgetPath,
     reload,

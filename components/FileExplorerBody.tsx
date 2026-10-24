@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import { useBbContext, useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
@@ -22,9 +22,10 @@ import {
   type ChatTarget,
 } from "@/lib/chat-draft-bus";
 import { requestFindInFolder } from "@/lib/find-in-folder";
+import { horizontalAction, moveSelection, renameSelectionEnd, visibleRows } from "@/lib/tree-nav";
 import type { rpcContract } from "../contract";
 import type { TreeEntry, Workspace } from "../shared";
-import type { useWorkspaceTree } from "@/hooks/useWorkspaceTree";
+import type { RowActions, TreeEditing, useWorkspaceTree } from "@/hooks/useWorkspaceTree";
 
 type TreeModel = ReturnType<typeof useWorkspaceTree>;
 
@@ -78,14 +79,18 @@ function targetLabel(
   }
 }
 
+/**
+ * Create a file and open it in BB's editor, as VS Code opens a file it just
+ * created. False keeps the name field open so the user can fix the name.
+ */
 async function createAndOpenFile(args: {
   rpc: ReturnType<typeof useRpc<typeof rpcContract>>;
-  navigate: ReturnType<typeof useBbNavigate>;
+  navigate: ReturnType<typeof useBbNavigate> | null;
   workspace: Workspace;
   directoryRelativePath: string;
   name: string;
   showCreated: (relativePath: string) => Promise<void>;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
     const result = await args.rpc.call("createFile", {
       rootId: args.workspace.rootId,
@@ -94,26 +99,168 @@ async function createAndOpenFile(args: {
     });
     if (!result.ok) {
       toast.error(result.message);
-      return;
+      return false;
     }
     await args.showCreated(result.relativePath);
-    const opened = openWorkspaceFile(
-      args.navigate,
-      args.workspace,
-      result.relativePath,
-      (message) => {
-        void args.rpc.call("clientLog", { message }).catch(() => undefined);
-      },
-      "external",
-    );
-    if (!opened) {
-      toast.error(
-        "Created the file, but could not open it in an external editor.",
-      );
-    }
+    openWorkspaceFile(args.navigate, args.workspace, result.relativePath, (message) => {
+      void args.rpc.call("clientLog", { message }).catch(() => undefined);
+    });
+    return true;
   } catch {
     toast.error("Could not create the file.");
+    return false;
   }
+}
+
+async function createFolderNamed(args: {
+  rpc: ReturnType<typeof useRpc<typeof rpcContract>>;
+  workspace: Workspace;
+  directoryRelativePath: string;
+  name: string;
+  showCreated: (relativePath: string) => Promise<void>;
+}): Promise<boolean> {
+  try {
+    const result = await args.rpc.call("createFolder", {
+      rootId: args.workspace.rootId,
+      directoryRelativePath: args.directoryRelativePath,
+      name: args.name,
+    });
+    if (!result.ok) {
+      toast.error(result.message);
+      return false;
+    }
+    await args.showCreated(result.relativePath);
+    return true;
+  } catch {
+    toast.error("Could not create the folder.");
+    return false;
+  }
+}
+
+const SETTLE_MS = 300;
+
+/**
+ * The name field VS Code puts in a tree row. Enter or leaving the field
+ * commits, Escape cancels; a rejected name keeps the field open.
+ */
+function InlineNameInput({
+  initial,
+  selectEnd,
+  onCommit,
+  onCancel,
+  onDraft,
+}: {
+  initial: string;
+  selectEnd: number;
+  onCommit: (name: string) => Promise<boolean>;
+  onCancel: () => void;
+  onDraft?: (name: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [value, setValue] = useState(initial);
+  const busy = useRef(false);
+  // A context menu that opened this field is still closing when it mounts,
+  // and its focus trap pulls focus back for a moment. Until things settle, a
+  // lost focus is taken back rather than read as "done editing".
+  const settlesAt = useRef(0);
+
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input === null) return;
+    settlesAt.current = Date.now() + SETTLE_MS;
+    const focus = () => {
+      if (document.activeElement === input) return;
+      input.focus();
+      input.setSelectionRange(0, selectEnd);
+    };
+    focus();
+    const timers = [0, 50, 150, SETTLE_MS].map((delay) => setTimeout(focus, delay));
+    return () => timers.forEach(clearTimeout);
+  }, [selectEnd]);
+
+  const commit = async () => {
+    if (busy.current) return;
+    const name = value.trim();
+    if (name === "" || name === initial) {
+      onCancel();
+      return;
+    }
+    busy.current = true;
+    const done = await onCommit(name);
+    busy.current = false;
+    if (!done) inputRef.current?.focus();
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      spellCheck={false}
+      aria-label="Name"
+      onChange={(event) => {
+        setValue(event.target.value);
+        onDraft?.(event.target.value);
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void commit();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
+      onBlur={() => {
+        if (Date.now() < settlesAt.current) return;
+        void commit();
+      }}
+      onClick={(event) => event.stopPropagation()}
+      className="min-w-0 flex-1 rounded-[2px] border border-ring bg-background px-1 text-[11px] leading-[18px] outline-none"
+    />
+  );
+}
+
+/** The row a new file or folder is named in, at the top of its folder. */
+function CreateRow({
+  depth,
+  editing,
+  workspace,
+  tree,
+}: {
+  depth: number;
+  editing: Extract<TreeEditing, { kind: "create" }>;
+  workspace: Workspace;
+  tree: TreeModel;
+}) {
+  const rpc = useRpc<typeof rpcContract>();
+  const { threadId } = useBbContext();
+  const [draft, setDraft] = useState("");
+  const onCommit = async (name: string) => {
+    const args = { rpc, workspace, directoryRelativePath: editing.parent, name, showCreated: tree.showCreated };
+    const done = editing.type === "file"
+      ? await createAndOpenFile({ ...args, navigate: surfaceNavigation(threadId) })
+      : await createFolderNamed(args);
+    if (done) tree.setEditing(null);
+    return done;
+  };
+  return (
+    <div className="flex w-full min-w-0 items-center gap-0.5 py-px pr-1" style={{ paddingLeft: 4 + depth * 10 }}>
+      <span className="size-3 shrink-0" />
+      {editing.type === "folder" ? (
+        <FolderTypeIcon name={draft} expanded={false} className="size-4" />
+      ) : (
+        <FileTypeIcon name={draft} className="size-4" />
+      )}
+      <InlineNameInput
+        initial=""
+        selectEnd={0}
+        onDraft={setDraft}
+        onCommit={onCommit}
+        onCancel={() => tree.setEditing(null)}
+      />
+    </div>
+  );
 }
 
 function TreeRow({
@@ -206,38 +353,16 @@ function TreeRow({
 
   const copyPathToClipboard = makeCopyPathToClipboard(rpc, workspace);
 
+  // Radix hands focus back to the row when its menu closes, which would blur
+  // the name field a menu item just opened. Those items opt out.
+  const keepFocusAfterMenu = useRef(false);
   const createFile = () => {
-    const name = window.prompt("File name:");
-    if (name === null) return;
-    void createAndOpenFile({
-      rpc,
-      navigate: overlayNavigate,
-      workspace,
-      directoryRelativePath: directoryOf(entry),
-      name,
-      showCreated: tree.showCreated,
-    });
+    keepFocusAfterMenu.current = true;
+    tree.startCreate(directoryOf(entry), "file");
   };
-
   const createFolder = () => {
-    const name = window.prompt("Folder name:");
-    if (name === null) return;
-    void rpc
-      .call("createFolder", {
-        rootId: workspace.rootId,
-        directoryRelativePath: directoryOf(entry),
-        name,
-      })
-      .then(async (result) => {
-        if (!result.ok) {
-          toast.error(result.message);
-          return;
-        }
-        await tree.showCreated(result.relativePath);
-      })
-      .catch(() => {
-        toast.error("Could not create the folder.");
-      });
+    keepFocusAfterMenu.current = true;
+    tree.startCreate(directoryOf(entry), "folder");
   };
 
   const deleteThisEntry = () => {
@@ -260,39 +385,101 @@ function TreeRow({
   };
 
   const renameThisEntry = () => {
-    const oldName = entry.name;
-    const newName = window.prompt("Rename to:", oldName);
-    if (newName === null) return;
-    void rpc
-      .call("renameEntry", {
+    keepFocusAfterMenu.current = true;
+    tree.setSelected(entry.relativePath);
+    tree.setEditing({ kind: "rename", path: entry.relativePath, isDirectory: isDir });
+  };
+
+  const commitRename = async (newName: string): Promise<boolean> => {
+    try {
+      const result = await rpc.call("renameEntry", {
         rootId: workspace.rootId,
         relativePath: entry.relativePath,
         newName,
-      })
-      .then(async (result) => {
-        if (!result.ok) {
-          toast.error(result.message);
-          return;
-        }
-        await tree.forgetPath(result.relativePath);
-      })
-      .catch(() => {
-        toast.error("Could not rename the item.");
       });
+      if (!result.ok) {
+        toast.error(result.message);
+        return false;
+      }
+      tree.setEditing(null);
+      await tree.showCreated(result.relativePath);
+      return true;
+    } catch {
+      toast.error("Could not rename the item.");
+      return false;
+    }
   };
+
+  // The keyboard handler lives on the tree; it reaches a row's own open and
+  // delete through this registration. A ref keeps it pointing at this
+  // render's closures without re-registering every render.
+  const actionsRef = useRef<RowActions>({ open: onActivate, remove: deleteThisEntry });
+  actionsRef.current = { open: onActivate, remove: deleteThisEntry };
+  useEffect(() => {
+    const actions: RowActions = {
+      open: () => actionsRef.current.open(),
+      remove: () => actionsRef.current.remove(),
+    };
+    tree.rowActions.set(entry.relativePath, actions);
+    return () => {
+      if (tree.rowActions.get(entry.relativePath) === actions) tree.rowActions.delete(entry.relativePath);
+    };
+  }, [tree.rowActions, entry.relativePath]);
+
+  const isRenaming = tree.editing?.kind === "rename" && tree.editing.path === entry.relativePath;
+  const creating = tree.editing?.kind === "create" && tree.editing.parent === entry.relativePath && isDir
+    ? tree.editing
+    : null;
 
   const findInFolder = () => {
     if (!isDir) return;
     requestFindInFolder(workspace.rootId, entry.relativePath);
   };
 
+  const chevron = (
+    <span
+      className={cn(
+        "flex size-3 shrink-0 items-center justify-center text-muted-foreground",
+        isIgnored && "opacity-50",
+      )}
+    >
+      {isDir ? (
+        <Icon name={isOpen ? "ChevronDown" : "ChevronRight"} className="size-2.5" />
+      ) : null}
+    </span>
+  );
+  const typeIcon = isDir ? (
+    <FolderTypeIcon name={entry.name} expanded={isOpen} className={cn("size-4", isIgnored && "opacity-45")} />
+  ) : (
+    <FileTypeIcon name={entry.name} className={cn("size-4", isIgnored && "opacity-45")} />
+  );
+
   return (
     <div>
+      {isRenaming ? (
+        <div
+          className="flex w-full min-w-0 items-center gap-0.5 rounded-[3px] bg-state-active py-px pr-1"
+          style={{ paddingLeft: 4 + depth * 10 }}
+        >
+          {chevron}
+          {typeIcon}
+          <InlineNameInput
+            initial={entry.name}
+            selectEnd={renameSelectionEnd(entry.name, isDir)}
+            onCommit={commitRename}
+            onCancel={() => tree.setEditing(null)}
+          />
+        </div>
+      ) : (
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
             ref={rowRef}
             type="button"
+            role="treeitem"
+            aria-selected={isSelected}
+            aria-expanded={isDir ? isOpen : undefined}
+            data-tree-path={entry.relativePath}
             onClick={onActivate}
             title={
               isIgnored
@@ -308,31 +495,8 @@ function TreeRow({
             )}
             style={{ paddingLeft: 4 + depth * 10 }}
           >
-            <span
-              className={cn(
-                "flex size-3 shrink-0 items-center justify-center text-muted-foreground",
-                isIgnored && "opacity-50",
-              )}
-            >
-              {isDir ? (
-                <Icon
-                  name={isOpen ? "ChevronDown" : "ChevronRight"}
-                  className="size-2.5"
-                />
-              ) : null}
-            </span>
-            {isDir ? (
-              <FolderTypeIcon
-                name={entry.name}
-                expanded={isOpen}
-                className={cn("size-4", isIgnored && "opacity-45")}
-              />
-            ) : (
-              <FileTypeIcon
-                name={entry.name}
-                className={cn("size-4", isIgnored && "opacity-45")}
-              />
-            )}
+            {chevron}
+            {typeIcon}
             <span
               className={cn(
                 "min-w-0 flex-1 truncate",
@@ -355,7 +519,14 @@ function TreeRow({
             )}
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-56">
+        <ContextMenuContent
+          className="w-56"
+          onCloseAutoFocus={(event) => {
+            if (!keepFocusAfterMenu.current) return;
+            keepFocusAfterMenu.current = false;
+            event.preventDefault();
+          }}
+        >
           {chatTargets.map((target) => (
             <ContextMenuItem
               key={target.key}
@@ -418,6 +589,10 @@ function TreeRow({
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+      )}
+      {creating !== null && isOpen ? (
+        <CreateRow depth={depth + 1} editing={creating} workspace={workspace} tree={tree} />
+      ) : null}
       {isOpen && childState?.status === "loading" ? (
         <p
           className="py-0.5 pr-1 text-[11px] text-muted-foreground"
@@ -452,7 +627,7 @@ function TreeRow({
 }
 
 export function FileExplorerBody({ tree }: { tree: TreeModel }) {
-  const overlayNavigate = useBbNavigate();
+  const keepFocusAfterMenu = useRef(false);
   const rpc = useRpc<typeof rpcContract>();
   const { threadId } = useBbContext();
   const chatTargets = useSyncExternalStore(
@@ -478,37 +653,70 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
   const copyPathToClipboard = makeCopyPathToClipboard(rpc, workspace);
 
   const createFileInRoot = () => {
-    const name = window.prompt("File name:");
-    if (name === null) return;
-    void createAndOpenFile({
-      rpc,
-      navigate: overlayNavigate,
-      workspace,
-      directoryRelativePath: "",
-      name,
-      showCreated: tree.showCreated,
-    });
+    keepFocusAfterMenu.current = true;
+    tree.startCreate("", "file");
+  };
+  const createFolderInRoot = () => {
+    keepFocusAfterMenu.current = true;
+    tree.startCreate("", "folder");
   };
 
-  const createFolderInRoot = () => {
-    const name = window.prompt("Folder name:");
-    if (name === null) return;
-    void rpc
-      .call("createFolder", {
-        rootId: workspace.rootId,
-        directoryRelativePath: "",
-        name,
-      })
-      .then(async (result) => {
-        if (!result.ok) {
-          toast.error(result.message);
-          return;
-        }
-        await tree.showCreated(result.relativePath);
-      })
-      .catch(() => {
-        toast.error("Could not create the folder.");
+  /**
+   * VS Code's tree keys. Arrows move and open, Enter opens, F2
+   * renames, Delete (or ⌘⌫) deletes. Focus follows the selection so the row
+   * stays in view and the next key lands here too.
+   */
+  const onTreeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (tree.editing !== null || event.target instanceof HTMLInputElement) return;
+    if (event.altKey || event.ctrlKey) return;
+    const rows = visibleRows(tree.dirs, tree.expanded);
+    const select = (path: string) => {
+      tree.setSelected(path);
+      const container = event.currentTarget;
+      requestAnimationFrame(() => {
+        container.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)?.focus();
       });
+    };
+    const selected = tree.selected;
+    const selectedRow = rows.find((row) => row.relativePath === selected);
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowUp":
+      case "Home":
+      case "End": {
+        if (event.metaKey) return;
+        const next = moveSelection(rows, selectedRow === undefined ? null : selected, event.key);
+        if (next !== null) select(next);
+        break;
+      }
+      case "ArrowLeft":
+      case "ArrowRight": {
+        if (event.metaKey) return;
+        const action = horizontalAction(rows, tree.expanded, selected, event.key);
+        if (action.kind === "expand") tree.setDirExpanded(action.path, true);
+        else if (action.kind === "collapse") tree.setDirExpanded(action.path, false);
+        else if (action.kind === "select") select(action.path);
+        else return;
+        break;
+      }
+      case "Enter":
+        if (selectedRow === undefined) return;
+        tree.rowActions.get(selectedRow.relativePath)?.open();
+        break;
+      case "F2":
+        if (selectedRow === undefined) return;
+        tree.setEditing({ kind: "rename", path: selectedRow.relativePath, isDirectory: selectedRow.isDirectory });
+        break;
+      case "Delete":
+      case "Backspace":
+        if (selectedRow === undefined || (event.key === "Backspace" && !event.metaKey)) return;
+        tree.rowActions.get(selectedRow.relativePath)?.remove();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
   };
   
   const openInFinder = () => {
@@ -526,8 +734,15 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
   };
 
   const root = tree.dirs[""];
+  const creatingInRoot = tree.editing?.kind === "create" && tree.editing.parent === "" ? tree.editing : null;
   return (
-    <div className="min-h-0 flex-1 overflow-auto py-1">
+    <div
+      role="tree"
+      aria-label="Files"
+      tabIndex={0}
+      onKeyDown={onTreeKeyDown}
+      className="min-h-0 flex-1 overflow-auto py-1 outline-none"
+    >
       <div className="flex w-full items-center justify-between px-1.5 py-0.5">
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -548,7 +763,14 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
               <span className="min-w-0 truncate">{workspace.rootName}</span>
             </button>
           </ContextMenuTrigger>
-          <ContextMenuContent className="w-56">
+          <ContextMenuContent
+            className="w-56"
+            onCloseAutoFocus={(event) => {
+              if (!keepFocusAfterMenu.current) return;
+              keepFocusAfterMenu.current = false;
+              event.preventDefault();
+            }}
+          >
             <ContextMenuItem onSelect={createFileInRoot}>
               <Icon name="FileText" className="size-4" />
               Create File
@@ -595,6 +817,9 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
       </div>
       {root?.status === "error" ? (
         <p className="px-2 text-[11px] text-destructive">{root.message}</p>
+      ) : null}
+      {creatingInRoot !== null ? (
+        <CreateRow depth={0} editing={creatingInRoot} workspace={workspace} tree={tree} />
       ) : null}
       {root?.status === "ready"
         ? root.entries.map((entry) => (

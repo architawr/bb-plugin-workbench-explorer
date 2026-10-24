@@ -235,6 +235,19 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       if (result.ok) invalidateListings(input.rootId);
       return result;
     },
+    quickOpen: async ({ rootId, query, limit }) => {
+      // Ask for more than shown: ignored hits are dropped after ranking.
+      const { hits } = await searchFilesInRoot(bb, { rootId, query, limit: Math.min(limit * 4, 200) }, await getIgnoredDirs());
+      const root = resolveRoot(rootId);
+      if (root === undefined || hits.length === 0) return { hits: hits.slice(0, limit) };
+      const { ignored } = await host.call(
+        "ignoredPaths",
+        { rootPath: root.rootPath, relativePaths: hits.map((hit) => hit.relativePath) },
+        { hostId: root.hostId },
+      ).catch(() => ({ ignored: [] as string[] }));
+      const skip = new Set(ignored);
+      return { hits: hits.filter((hit) => !skip.has(hit.relativePath)).slice(0, limit) };
+    },
     gitStatus: async ({ rootId }) => {
       const root = resolveRoot(rootId);
       if (root === undefined) return { isRepository: false, entries: [], truncated: false };

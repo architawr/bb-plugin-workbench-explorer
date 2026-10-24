@@ -8,6 +8,8 @@ import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
 import { ChangesPanel } from "@/components/ChangesPanel";
 import { ConfirmHost } from "@/components/ConfirmHost";
+import { QuickOpen } from "@/components/QuickOpen";
+import { subscribeTextSearch } from "@/lib/text-search-bus";
 import { useGitStatus } from "@/hooks/useGitStatus";
 import { RailResizeHandle } from "@/components/RailResizeHandle";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -87,6 +89,11 @@ export function GlobalFileExplorerRail() {
   // A right-clicked "Find in Folder" opens the tab that answers it. The panel
   // reads the same request and scopes its query to that folder.
   const findInFolder = useSyncExternalStore(subscribeFindInFolder, getFindInFolder);
+  useEffect(() => subscribeTextSearch(() => {
+    writeStoredOpen(true);
+    setTab("search");
+    writeStoredTab("search");
+  }), []);
   useEffect(() => {
     if (findInFolder === null) return;
     setTab("search");
@@ -178,6 +185,7 @@ export function GlobalFileExplorerRail() {
   return <>
     {framed ? <TitleBarFileExplorerToggle open={railOpen} /> : null}
     <ConfirmHost />
+    <QuickOpen root={chosen?.workspace ?? null} />
     {createPortal(
     <aside
       {...portalScopeProps}
@@ -208,7 +216,7 @@ export function GlobalFileExplorerRail() {
       <div className="flex h-[48px] shrink-0 items-center justify-between border-b border-sidebar-border pl-3 pr-1">
         <span className="truncate text-sm font-medium text-muted-foreground">File Explorer</span>
         <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0 p-0"
-          aria-label="Hide file explorer (⌘⇧E)"
+          aria-label="Hide file explorer (⌘B)"
           onClick={() => writeStoredOpen(false)}>
           <Icon name="X" className="size-4" />
         </Button>

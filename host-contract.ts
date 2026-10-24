@@ -64,6 +64,11 @@ export const hostContract = defineRpcContract({
     input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), destinationDirectory: z.string() }).strict(),
     output: z.object({ ok: z.boolean(), relativePath: z.string().nullable(), message: z.string().nullable() }).strict(),
   },
+  /** Which of these root-relative paths git ignores; empty outside a repository. */
+  ignoredPaths: {
+    input: z.object({ rootPath: z.string().min(1), relativePaths: z.array(z.string()).max(1000) }).strict(),
+    output: z.object({ ignored: z.array(z.string()) }).strict(),
+  },
   removePath: {
     input: z.object({
       rootPath: z.string().min(1),

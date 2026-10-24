@@ -13,6 +13,14 @@ import {
 } from "./shared";
 
 export const rpcContract = defineRpcContract({
+  /**
+   * Quick Open: files under a root by fuzzy name, leaving out what git
+   * ignores (node_modules, build output), as VS Code does by default.
+   */
+  quickOpen: {
+    input: z.object({ rootId: z.string().min(1), query: z.string().trim().min(1).max(1024), limit: z.number().int().min(1).max(100) }).strict(),
+    output: z.object({ hits: z.array(searchHitSchema) }),
+  },
   /** Uncommitted changes under a root, for colouring the tree and the Changes tab. */
   gitStatus: {
     input: z.object({ rootId: z.string().min(1) }).strict(),

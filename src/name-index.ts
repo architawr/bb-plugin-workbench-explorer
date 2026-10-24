@@ -23,6 +23,7 @@
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
+import { fuzzyScore } from "../lib/fuzzy";
 import type { RevealRoot } from "../shared";
 import { mapLimit } from "./pool";
 
@@ -402,6 +403,8 @@ interface Scored {
   file: IndexedFile;
   /** Lower is a better kind of match; ties break on depth, then length. */
   tier: number;
+  /** Within the fuzzy tier, how tight the match is; 0 for the exact tiers. */
+  score: number;
 }
 
 /**
@@ -443,6 +446,7 @@ function scoreByName(name: string, needle: string): number | null {
  */
 function compare(a: Scored, b: Scored): number {
   if (a.tier !== b.tier) return a.tier - b.tier;
+  if (a.score !== b.score) return a.score - b.score;
   if (a.file.depth !== b.file.depth) {
     return a.file.depth - b.file.depth;
   }
@@ -475,7 +479,7 @@ export async function searchByQuery(
       for (const file of files) {
         const tier = scoreByPath(file, query.needle);
         if (tier === null) continue;
-        scored.push({ file, tier });
+        scored.push({ file, tier, score: 0 });
         if (scored.length >= MAX_CANDIDATES) break outer;
       }
     }
@@ -484,7 +488,25 @@ export async function searchByQuery(
       const tier = scoreByName(name, query.needle);
       if (tier === null) continue;
       for (const file of files) {
-        scored.push({ file, tier });
+        scored.push({ file, tier, score: 0 });
+        if (scored.length >= MAX_CANDIDATES) break outer;
+      }
+    }
+  }
+
+  // Quick Open's fuzzy tier: the letters in order, not together. Only when
+  // the exact tiers left room, so a precise query stays precise.
+  if (scored.length < limit) {
+    const exact = new Set(scored.map((entry) => entry.file.absolutePath));
+    outer: for (const files of index.byName.values()) {
+      for (const file of files) {
+        if (exact.has(file.absolutePath)) continue;
+        const score = query.hasSlash
+          ? fuzzyScore(file.lowerPath, query.needle)
+          // The original case, so camelCase humps count as word starts.
+          : fuzzyScore(path.basename(file.absolutePath), query.needle);
+        if (score === null) continue;
+        scored.push({ file, tier: 3, score });
         if (scored.length >= MAX_CANDIDATES) break outer;
       }
     }

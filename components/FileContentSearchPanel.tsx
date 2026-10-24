@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useBbContext } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { FileTypeIcon } from "@/components/FileTypeIcon";
@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils";
 import { openWorkspaceFile } from "@/lib/open-preview";
 import { surfaceNavigation } from "@/lib/surface-navigation";
 import { consumeFindInFolder } from "@/lib/find-in-folder";
-import { useSearchInFiles, type FileGroup } from "@/hooks/useSearchInFiles";
+import { useSearchInFiles, type FileGroup, type SearchOptions } from "@/hooks/useSearchInFiles";
+import { previewReplace } from "@/lib/replace-preview";
+import { consumeTextSearchRequest, subscribeTextSearch } from "@/lib/text-search-bus";
 import type { FileSearchMatch, Workspace } from "../shared";
 
 function OptionToggle({
@@ -56,24 +58,69 @@ function Highlighted({ match }: { match: FileSearchMatch }) {
   );
 }
 
+/** The line as Replace would leave it: each match struck, then what replaces it. */
+function ReplacePreview({ match, preview }: { match: FileSearchMatch; preview: ReplacePreviewInput }) {
+  const segments = previewReplace(match.text, preview.query, preview.options, preview.replacement);
+  if (segments === null) return <Highlighted match={match} />;
+  return (
+    <span className="whitespace-pre">
+      {segments.map((segment, index) =>
+        segment.kind === "same" ? (
+          <span key={index}>{segment.text}</span>
+        ) : segment.kind === "old" ? (
+          <span key={index} className="rounded-[2px] bg-red-500/20 text-red-600 line-through dark:text-red-400">{segment.text}</span>
+        ) : (
+          <span key={index} className="rounded-[2px] bg-green-500/20 text-green-700 dark:text-green-400">{segment.text}</span>
+        ),
+      )}
+    </span>
+  );
+}
+
+interface ReplacePreviewInput {
+  query: string;
+  options: SearchOptions;
+  replacement: string;
+}
+
 function ResultGroup({
   group,
   disabled,
+  collapsed,
+  preview,
   onOpen,
   onReplaceFile,
+  onDismiss,
+  onToggle,
 }: {
   group: FileGroup;
   disabled: boolean;
+  collapsed: boolean;
+  /** Set while the Replace field holds text: lines then show the change. */
+  preview: ReplacePreviewInput | null;
   onOpen: (match: FileSearchMatch) => void;
   onReplaceFile: (relativePath: string) => void;
+  onDismiss: (relativePath: string) => void;
+  onToggle: (relativePath: string) => void;
 }) {
+  const folder = group.relativePath.includes("/") ? group.relativePath.slice(0, group.relativePath.lastIndexOf("/")) : "";
   return (
-    <div className="mb-2">
-      <div className="group/header flex items-center gap-1 rounded-[3px] px-1.5 py-0.5">
-        <FileTypeIcon name={group.name} className="size-3 shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-[11px] font-medium" title={group.relativePath}>
+    <div className="mb-1">
+      <div className="group/header flex items-center gap-1 rounded-[3px] px-1 py-0.5 hover:bg-state-hover">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${group.name}` : `Collapse ${group.name}`}
+          onClick={() => onToggle(group.relativePath)}
+          className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <Icon name={collapsed ? "ChevronRight" : "ChevronDown"} className="size-2.5" />
+        </button>
+        <FileTypeIcon name={group.name} className="size-4 shrink-0" />
+        <span className="min-w-0 shrink truncate text-[11px] font-medium" title={group.relativePath}>
           {group.name}
         </span>
+        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/70">{folder}</span>
         <span className="shrink-0 rounded-full bg-state-hover px-1.5 text-[9px] leading-4 text-muted-foreground">
           {group.matches.length}
         </span>
@@ -87,8 +134,17 @@ function ResultGroup({
         >
           <Icon name="Replace" className="size-3" />
         </button>
+        <button
+          type="button"
+          title="Dismiss — leave this file out of Replace All"
+          aria-label={`Dismiss ${group.name}`}
+          onClick={() => onDismiss(group.relativePath)}
+          className="flex size-4 shrink-0 items-center justify-center rounded-[3px] text-muted-foreground opacity-0 hover:bg-state-active group-hover/header:opacity-100"
+        >
+          <Icon name="X" className="size-2.5" />
+        </button>
       </div>
-      {group.matches.map((match) => (
+      {collapsed ? null : group.matches.map((match) => (
         <button
           key={`${match.relativePath}:${match.line}`}
           type="button"
@@ -100,7 +156,7 @@ function ResultGroup({
             {match.line}
           </span>
           <span className="min-w-0 flex-1 truncate text-[11px] leading-4">
-            <Highlighted match={match} />
+            {preview === null ? <Highlighted match={match} /> : <ReplacePreview match={match} preview={preview} />}
           </span>
         </button>
       ))}
@@ -117,6 +173,20 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
   const { threadId } = useBbContext();
   const search = useSearchInFiles(root);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const queryRef = useRef<HTMLInputElement>(null);
+  // ⌘⇧F focuses the query, whether it mounted this panel or found it showing.
+  // A panel that merely mounts — a reload, a tab switch — leaves focus alone.
+  useEffect(() => {
+    const focus = () => {
+      consumeTextSearchRequest();
+      requestAnimationFrame(() => {
+        queryRef.current?.focus();
+        queryRef.current?.select();
+      });
+    };
+    if (consumeTextSearchRequest()) focus();
+    return subscribeTextSearch(focus);
+  }, []);
   // Consume the pending Find-in-Folder scope exactly once on mount. The store
   // is cleared so a tab-switch remount will not re-apply the same scope and
   // clobber any edits the user made in the include/exclude fields.
@@ -145,6 +215,10 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
     );
   }
 
+  const preview: ReplacePreviewInput | null = search.replacement === ""
+    ? null
+    : { query: search.query.trim(), options: search.options, replacement: search.replacement };
+
   const summary = search.groups.length === 0
     ? null
     : `${search.matches.length}${search.truncated ? "+" : ""} in ${search.groups.length} ${
@@ -161,6 +235,7 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
             value={search.query}
             onChange={(event) => search.setQuery(event.target.value)}
             placeholder="Search in files"
+            ref={queryRef}
             aria-label="Search text inside files"
             autoComplete="off"
             spellCheck={false}
@@ -218,7 +293,7 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
             title="Replace all"
             aria-label="Replace all"
             disabled={search.isReplacing || search.groups.length === 0}
-            onClick={search.replaceAll}
+            onClick={() => void search.replaceAll()}
             className="flex size-5 shrink-0 items-center justify-center rounded-[3px] text-muted-foreground hover:bg-state-hover disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <Icon name="ReplaceAll" className="size-3" />
@@ -258,10 +333,21 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
       </div>
 
       {summary !== null ? (
-        <p className="shrink-0 border-b border-sidebar-border px-2 py-1 text-[10px] text-muted-foreground">
-          {summary}
-          {search.truncated ? " — refine the query to see the rest" : ""}
-        </p>
+        <div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-2 py-1 text-[10px] text-muted-foreground">
+          <span className="min-w-0 flex-1">
+            {summary}
+            {search.truncated ? " — refine the query to see the rest" : ""}
+          </span>
+          <button
+            type="button"
+            title={search.collapsed.size > 0 ? "Expand all" : "Collapse all"}
+            aria-label={search.collapsed.size > 0 ? "Expand all" : "Collapse all"}
+            onClick={search.collapsed.size > 0 ? search.expandAll : search.collapseAll}
+            className="flex size-4 shrink-0 items-center justify-center rounded-[3px] hover:bg-state-hover"
+          >
+            <Icon name={search.collapsed.size > 0 ? "ChevronsDown" : "ChevronsUp"} className="size-3" />
+          </button>
+        </div>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto py-1">
@@ -287,8 +373,12 @@ export function FileContentSearchPanel({ root }: { root: Workspace | null }) {
                 key={group.relativePath}
                 group={group}
                 disabled={search.isReplacing}
+                collapsed={search.collapsed.has(group.relativePath)}
+                preview={preview}
                 onOpen={openMatch}
                 onReplaceFile={(relativePath) => void search.runReplace([relativePath])}
+                onDismiss={search.dismiss}
+                onToggle={search.toggleCollapsed}
               />
             ))}
           </>

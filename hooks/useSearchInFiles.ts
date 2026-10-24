@@ -3,6 +3,7 @@ import { useRpc } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import type { rpcContract } from "../contract";
 import type { FileSearchMatch, Workspace } from "../shared";
+import { requestConfirm } from "@/lib/confirm-bus";
 
 /** Two letters match half a codebase; the query only pays off from three. */
 const MIN_QUERY_LENGTH = 2;
@@ -41,6 +42,10 @@ export function useSearchInFiles(root: Workspace | null) {
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Files the user dismissed from the results (VS Code's ×): hidden, and left
+  // alone by Replace All. A new search brings them back.
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const requestId = useRef(0);
 
   const rootId = root?.rootId ?? null;
@@ -95,6 +100,11 @@ export function useSearchInFiles(root: Workspace | null) {
     setTruncated(false);
   }, [rootId]);
 
+  useEffect(() => {
+    setDismissed(new Set());
+    setCollapsed(new Set());
+  }, [rootId, trimmed, options, include, exclude]);
+
   const groups = useMemo<FileGroup[]>(() => {
     const byPath = new Map<string, FileGroup>();
     for (const match of matches) {
@@ -109,8 +119,21 @@ export function useSearchInFiles(root: Workspace | null) {
         existing.matches.push(match);
       }
     }
-    return [...byPath.values()];
-  }, [matches]);
+    return [...byPath.values()].filter((group) => !dismissed.has(group.relativePath));
+  }, [matches, dismissed]);
+
+  const dismiss = useCallback((relativePath: string) => {
+    setDismissed((current) => new Set([...current, relativePath]));
+  }, []);
+
+  const toggleCollapsed = useCallback((relativePath: string) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(relativePath)) next.delete(relativePath);
+      else next.add(relativePath);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(() => {
     setRefreshKey((key) => key + 1);
@@ -191,7 +214,23 @@ export function useSearchInFiles(root: Workspace | null) {
     clear,
     refresh,
     runReplace,
-    replaceAll: () => runReplace(groups.map((group) => group.relativePath)),
+    /** Replace in every file still listed, after saying how much will change. */
+    replaceAll: async () => {
+      if (groups.length === 0) return;
+      const lines = groups.reduce((sum, group) => sum + group.matches.length, 0);
+      const files = `${groups.length} ${groups.length === 1 ? "file" : "files"}`;
+      const confirmed = await requestConfirm({
+        title: `Replace in ${files}?`,
+        description: `${lines}${truncated ? "+" : ""} matching ${lines === 1 ? "line" : "lines"} of "${trimmed}" become "${replacement}". Files you dismissed are left alone. This cannot be undone from here.`,
+        confirmLabel: "Replace All",
+      });
+      if (confirmed) await runReplace(groups.map((group) => group.relativePath));
+    },
+    dismiss,
+    collapsed,
+    toggleCollapsed,
+    collapseAll: () => setCollapsed(new Set(groups.map((group) => group.relativePath))),
+    expandAll: () => setCollapsed(new Set()),
     /** The query is long enough and something was actually searched. */
     hasQuery: trimmed.length >= MIN_QUERY_LENGTH,
     tooShort: trimmed.length > 0 && trimmed.length < MIN_QUERY_LENGTH,

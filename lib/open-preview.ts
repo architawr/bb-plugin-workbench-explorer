@@ -1,5 +1,6 @@
 import type { useBbNavigate } from "@get-bb/plugin-sdk/app";
 import type { Workspace } from "../shared";
+import { recordRecentFile } from "./recent-files";
 
 type Navigate = ReturnType<typeof useBbNavigate>;
 
@@ -20,7 +21,11 @@ export function openWorkspaceFile(
   relativePath: string,
   report: (message: string) => void = () => undefined,
   via: "preview" | "external" = "preview",
+  /** One-based line to reveal, as Quick Open's `name:42` asks. */
+  line: number | null = null,
 ): boolean {
+  recordRecentFile(workspace, relativePath);
+  const location = line === null ? null : { kind: "line" as const, line, column: null };
   if (navigate === null) {
     report("open unavailable: this BB surface has no file preview navigation");
     return false;
@@ -32,7 +37,7 @@ export function openWorkspaceFile(
     if (environmentId !== null && environmentId !== "") {
       const workspaceTarget = {
         target: { kind: "workspace" as const, environmentId, path: relativePath },
-        location: null,
+        location,
       };
       const opened =
         via === "external"
@@ -43,7 +48,7 @@ export function openWorkspaceFile(
     }
     const hostTarget = {
       target: { kind: "host" as const, hostId: workspace.hostId, path: absolutePath },
-      location: null,
+      location,
     };
     const opened =
       via === "external"

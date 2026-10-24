@@ -6,6 +6,8 @@ import { ChatDraftBridge } from "@/components/ChatDraftBridge";
 import { FILE_DIFF_ACTION_ID, FileDiffPanel } from "@/components/FileDiffPanel";
 import { requestSearchFocus } from "@/lib/search-focus-bus";
 import { toggleRailOpen, writeStoredOpen } from "@/lib/rail-state";
+import { setQuickOpen } from "@/lib/quick-open-bus";
+import { requestTextSearch } from "@/lib/text-search-bus";
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({ id: "global-file-explorer", component: GlobalFileExplorerRail });
@@ -43,9 +45,25 @@ export default definePluginApp((app) => {
   });
 
   app.commands.register({
+    id: "quick-open",
+    title: "File Explorer: Go to File…",
+    // ⌘P is BB's own "Quick open file"; ⌘E is VS Code's other Quick Open key on macOS.
+    defaultShortcut: { key: "e", mod: true },
+    run: () => setQuickOpen(true),
+  });
+
+  app.commands.register({
+    id: "search-in-files",
+    title: "File Explorer: Search in Files",
+    defaultShortcut: { key: "f", mod: true, shift: true },
+    run: requestTextSearch,
+  });
+
+  app.commands.register({
     id: "toggle-file-explorer",
     title: "File Explorer: show or hide",
-    defaultShortcut: { key: "e", mod: true, shift: true },
+    // ⇧⌘E resizes BB's chat pane; ⌘B is VS Code's sidebar toggle.
+    defaultShortcut: { key: "b", mod: true },
     run: toggleRailOpen,
   });
 

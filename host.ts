@@ -5,6 +5,7 @@ import { searchHostInFiles } from "./src/host-search";
 import { hostGitDiff, hostGitStatus } from "./src/host-git-status";
 import { copyHostPath, restoreHostPath, trashHostPath } from "./src/host-trash";
 import { assertSafeRelative } from "./src/paths";
+import { ignoredChildNames } from "./src/git-ignore";
 
 export default experimental_defineHostEntry({
   contract: hostContract,
@@ -16,6 +17,9 @@ export default experimental_defineHostEntry({
       searchHostInFiles(rootPath, input, new Set(ignoredFolders)),
     removePath: ({ rootPath, relativePath }) => removeHostPath(rootPath, relativePath),
     gitStatus: ({ rootPath }) => hostGitStatus(rootPath),
+    ignoredPaths: async ({ rootPath, relativePaths }) => ({
+      ignored: [...await ignoredChildNames(rootPath, relativePaths)],
+    }),
     trashPath: ({ rootPath, relativePath }) => trashHostPath(rootPath, relativePath),
     restorePath: ({ rootPath, relativePath, trashedPath }) => restoreHostPath(rootPath, relativePath, trashedPath),
     copyPath: ({ rootPath, relativePath, destinationDirectory }) =>

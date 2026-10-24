@@ -46,7 +46,7 @@ export function TitleBarFileExplorerToggle({ open }: { open: boolean }) {
         variant="ghost"
         size="icon"
         className="size-7 rounded-md p-0"
-        aria-label={open ? "Hide file explorer (⌘⇧E)" : "Show file explorer (⌘⇧E)"}
+        aria-label={open ? "Hide file explorer (⌘B)" : "Show file explorer (⌘B)"}
         aria-pressed={open}
         onClick={toggleRailOpen}
       >

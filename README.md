@@ -33,7 +33,12 @@ Open in Explorer reveals the file in the system file manager: `open -R` on macOS
 - Files and folders take VS Code's Git colours: amber **M** for modified, green **U**/**A** for new, red **D** for deleted, purple **!** for conflicts. A folder holding changes takes the most pressing colour beneath it and ends with a dot. The status is re-read every 3 seconds while the window is visible.
 - The **Changes** tab lists every uncommitted file under the pinned folder. Click one for its diff against HEAD in a BB panel tab (Inline or Side by side); **Open** opens the file itself.
 - File and folder icons are the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT, see `vendor/material-icon-theme/LICENSE`), resolved the way VS Code does. Regenerate them with `python3 -I scripts/gen-material-icons.py <unpacked material-icon-theme package>`.
-- In BB's desktop window the rail sits below the title bar, and its show/hide button joins the title-bar buttons. **File Explorer: show or hide** in the command palette toggles it (default ⌘⇧E).
+- In BB's desktop window the rail sits below the title bar, and its show/hide button joins the title-bar buttons. **File Explorer: show or hide** in the command palette toggles it (default ⌘B).
+
+## Finding things
+
+- **Go to File (⌘E)** — VS Code's Quick Open over the pinned folder. Letters in order are enough: `fexb` finds `FileExplorerBody.tsx`, with the matched letters marked. Empty, it lists files opened lately; `server.ts:30` opens on line 30. What git ignores (node_modules, build output) is left out. BB's own ⌘P "Quick open file" is untouched; rebind either in Settings → Keyboard.
+- **Search in Files (⇧⌘F)** opens the rail on its Search tab with the query focused. With text in Replace, every result line previews the change: the match struck through, the replacement after it (regex `$1` groups expanded). × dismisses a file so Replace All leaves it alone; result groups collapse one by one or all at once. Replace All says how much will change and asks first.
 
 ## Working with files
 

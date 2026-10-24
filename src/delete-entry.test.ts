@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile, readdir, symlink, stat, lstat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import type { ExperimentalHostClient } from "@get-bb/plugin-sdk";
 import { hostContract } from "../host-contract";
 import { deleteEntry } from "./delete-entry";

@@ -2,7 +2,7 @@ import type { Workspace } from "../shared";
 
 /** What Quick Open shows before anything is typed: files opened lately, newest first. */
 const MAX_RECENT = 30;
-const STORAGE_PREFIX = "bb-plugin-file-explorer:recent:";
+const STORAGE_PREFIX = "bb-plugin-workbench-explorer:recent:";
 
 function storageKey(workspace: Pick<Workspace, "hostId" | "rootPath">): string {
   return `${STORAGE_PREFIX}${workspace.hostId}:${workspace.rootPath}`;

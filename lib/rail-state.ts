@@ -2,8 +2,8 @@
  * The rail's open/closed flag is shared by controls mounted in different BB
  * surfaces. The rail initializes it after settings load.
  */
-export const RAIL_STORAGE_KEY = "bb-plugin-file-explorer:rail-open";
-export const RAIL_EVENT = "bb-plugin-file-explorer:rail-open";
+export const RAIL_STORAGE_KEY = "bb-plugin-workbench-explorer:rail-open";
+export const RAIL_EVENT = "bb-plugin-workbench-explorer:rail-open";
 /** Storage key and event name for the git plugin's rail. When this rail opens,
  *  the sibling rail is closed so the two right-side panels never overlap —
  *  both sit at `fixed right-0 z-40` in the host window. */

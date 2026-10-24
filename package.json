@@ -1,16 +1,16 @@
 {
-  "name": "bb-plugin-file-explorer",
-  "version": "0.2.0",
+  "name": "bb-plugin-workbench-explorer",
+  "version": "0.3.0",
   "type": "module",
   "engines": {
     "bb": ">=0.43.4",
     "bbPluginSdk": ">=0.5.9"
   },
   "bb": {
-    "name": "File Explorer",
-    "description": "Shows a pinned file explorer across BB threads. Search files by name, search and replace text inside files, preview, add paths to chat, or reveal files in Explorer.",
+    "name": "Workbench Explorer",
+    "description": "A VS Code-style file explorer pinned beside every BB thread: git status colours and diffs, Material icons, Quick Open (⌘E), search and replace with preview, keyboard navigation, drag and drop, and delete to Trash with undo.",
     "branding": {
-      "icon": "FileText"
+      "icon": "./assets/icon.svg"
     },
     "server": "./server.ts",
     "host": "./host.ts",
@@ -50,5 +50,17 @@
     "tailwind-merge": "^3.4.0",
     "typescript": "^5.7.0",
     "vaul": "^1.1.2"
-  }
+  },
+  "description": "A VS Code-style file explorer pinned beside every BB thread: git colours and diffs, Material icons, Quick Open, search and replace with preview, keyboard navigation, drag and drop, and Trash with undo.",
+  "keywords": [
+    "bb-plugin",
+    "file-explorer",
+    "file-tree",
+    "vscode",
+    "git",
+    "diff",
+    "quick-open",
+    "search-and-replace",
+    "material-icons"
+  ]
 }

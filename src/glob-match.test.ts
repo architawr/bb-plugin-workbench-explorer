@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { anyGlobMatches, compileGlob, parseGlobs } from "./glob-match";
 
 function matches(glob: string, path: string): boolean {

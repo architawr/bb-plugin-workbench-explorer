@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { createTimedCache } from "./timed-cache.ts";
 
 test("recall returns a value stored for the same scope", () => {

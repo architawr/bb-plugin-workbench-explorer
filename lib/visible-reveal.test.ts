@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { includeRevealedChild, type VisibleReveal } from "./visible-reveal";
 
 test("a revealed file remains visible when the host hides its dotfolder", () => {

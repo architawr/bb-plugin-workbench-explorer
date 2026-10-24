@@ -9,7 +9,7 @@ import {
 
 declare const __BB_PLUGIN_ID__: string | undefined;
 
-const PLUGIN_ID = typeof __BB_PLUGIN_ID__ === "string" ? __BB_PLUGIN_ID__ : "file-explorer";
+const PLUGIN_ID = typeof __BB_PLUGIN_ID__ === "string" ? __BB_PLUGIN_ID__ : "workbench-explorer";
 
 /** Served by the plugin's own route; the version in the URL lets the browser cache them for good. */
 function iconUrl(id: string): string {

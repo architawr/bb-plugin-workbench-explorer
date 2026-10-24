@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { promisify } from "node:util";
 import { ignoredChildNames } from "./git-ignore";
 
@@ -19,13 +19,13 @@ test("a directory outside a work tree reports nothing ignored", async () => {
   }
 });
 
-test("a repo's gitignore rules mark exactly the ignored children", async (t) => {
+test("a repo's gitignore rules mark exactly the ignored children", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "bb-file-explorer-ignore-repo-"));
   try {
     try {
       await execFileAsync("git", ["init", "-q"], { cwd: dir });
     } catch {
-      t.skip("git is not available");
+      // No git on this machine: nothing to check.
       return;
     }
     await writeFile(path.join(dir, ".gitignore"), "build/\n*.log\n!keep.log\n");

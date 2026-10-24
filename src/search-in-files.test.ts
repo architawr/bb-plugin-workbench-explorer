@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { basename } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import {
   replaceInFiles,
   searchInFiles,

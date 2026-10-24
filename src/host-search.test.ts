@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { searchHostInFiles } from "./host-search";
 import type { SearchInFilesInput } from "./search-in-files";
 
@@ -134,8 +134,11 @@ test("include and exclude globs are passed to ripgrep and respected", async () =
     "tests/a.test.ts": "foo\n",
   });
   try {
+    // `*.ts` matches by name at any depth, so the test file counts too.
     const onlyTs = await search(root, { query: "foo", include: "*.ts" });
-    assert.deepEqual(onlyTs.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1"]);
+    assert.deepEqual(onlyTs.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1", "tests/a.test.ts:1:0:1"]);
+    const onlySrcTs = await search(root, { query: "foo", include: "src/*.ts" });
+    assert.deepEqual(onlySrcTs.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1"]);
     const noTests = await search(root, { query: "foo", exclude: "**/*.test.ts" });
     assert.deepEqual(noTests.rows.sort(), ["src/a.ts:1:0:1", "src/b.ts:1:0:1", "src/c.txt:1:0:1"]);
     const noTests2 = await search(root, { query: "foo", exclude: "tests" });

@@ -14,7 +14,7 @@ export default definePluginApp((app) => {
 
   app.slots.experimental_threadHeaderAction({
     id: "file-explorer-toggle",
-    title: "File Explorer",
+    title: "Workbench Explorer",
     component: ({ threadId }) => <FileExplorerHeaderAction threadId={threadId} />,
   });
 
@@ -27,7 +27,7 @@ export default definePluginApp((app) => {
 
   app.slots.sidebarFooterAction({
     id: "file-explorer-toggle",
-    title: "File Explorer",
+    title: "Workbench Explorer",
     icon: "FileText",
     run: toggleRailOpen,
   });
@@ -46,7 +46,7 @@ export default definePluginApp((app) => {
 
   app.commands.register({
     id: "quick-open",
-    title: "File Explorer: Go to File…",
+    title: "Explorer: Go to File…",
     // ⌘P is BB's own "Quick open file"; ⌘E is VS Code's other Quick Open key on macOS.
     defaultShortcut: { key: "e", mod: true },
     run: () => setQuickOpen(true),
@@ -54,14 +54,14 @@ export default definePluginApp((app) => {
 
   app.commands.register({
     id: "search-in-files",
-    title: "File Explorer: Search in Files",
+    title: "Explorer: Search in Files",
     defaultShortcut: { key: "f", mod: true, shift: true },
     run: requestTextSearch,
   });
 
   app.commands.register({
     id: "toggle-file-explorer",
-    title: "File Explorer: show or hide",
+    title: "Explorer: show or hide",
     // ⇧⌘E resizes BB's chat pane; ⌘B is VS Code's sidebar toggle.
     defaultShortcut: { key: "b", mod: true },
     run: toggleRailOpen,
@@ -69,7 +69,7 @@ export default definePluginApp((app) => {
 
   app.slots.commandPaletteAction({
     id: "find-file-in-tree",
-    title: "File Explorer: find a file",
+    title: "Explorer: find a file",
     run: () => {
       writeStoredOpen(true);
       requestSearchFocus();
@@ -78,7 +78,7 @@ export default definePluginApp((app) => {
 
   app.slots.commandPaletteAction({
     id: "open-file-explorer",
-    title: "File Explorer: show pinned folder",
+    title: "Explorer: show pinned folder",
     run: () => {
       writeStoredOpen(true);
     },

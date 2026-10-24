@@ -1,6 +1,6 @@
 ## Project Overview
 
-**bb-plugin-file-explorer** is a [BB](https://getbb.app) plugin that keeps a file explorer open across threads. Choose a project source or thread workspace as its pinned folder. Switching threads leaves the folder, expanded directories, and selection in place. Built with TypeScript, React 19, and Tailwind CSS.
+**bb-plugin-workbench-explorer** (Workbench Explorer) is a [BB](https://getbb.app) plugin that keeps a file explorer open across threads. Choose a project source or thread workspace as its pinned folder. Switching threads leaves the folder, expanded directories, and selection in place. Built with TypeScript, React 19, and Tailwind CSS.
 
 The rail carries two tabs — **Files** (name/path search) and **Search text** (content search with replace) — and integrates with chat by revealing paths written in messages, including bare filenames resolved via a name index over the search roots.
 
@@ -9,7 +9,7 @@ The rail carries two tabs — **Files** (name/path search) and **Search text** (
 ```bash
 npm install           # Install dependencies
 bb plugin build       # Build the plugin
-bb plugin reload file-explorer  # Reload plugin in development
+bb plugin reload workbench-explorer  # Reload plugin in development
 bun test              # Run the unit tests
 ```
 
@@ -121,10 +121,10 @@ Three layers of persistence:
 | What                                                                                        | Storage                       | Key                                   |
 | ------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------- |
 | Settings (openByDefault, confirmDelete, showSkipped, ignoredFolders, treeRoot, searchRoots) | `bb.settings.define`          | survives BB restarts                  |
-| Rail open state                                                                             | `localStorage` + custom event | `bb-plugin-file-explorer:rail-open`   |
-| Rail width                                                                                  | `localStorage` + custom event | `bb-plugin-file-explorer:rail-width`  |
-| Pinned root ID                                                                              | `localStorage`                | `bb-plugin-file-explorer:pinned-root` |
-| Active tab (files/search)                                                                   | `localStorage`                | `bb-plugin-file-explorer:tab`         |
+| Rail open state                                                                             | `localStorage` + custom event | `bb-plugin-workbench-explorer:rail-open`   |
+| Rail width                                                                                  | `localStorage` + custom event | `bb-plugin-workbench-explorer:rail-width`  |
+| Pinned root ID                                                                              | `localStorage`                | `bb-plugin-workbench-explorer:pinned-root` |
+| Active tab (files/search)                                                                   | `localStorage`                | `bb-plugin-workbench-explorer:tab`         |
 | Tree expansion state                                                                        | In-memory (per window)        | not persisted                         |
 | Path resolution cache                                                                       | In-memory `createTimedCache`  | scoped by threadId, 10min TTL         |
 

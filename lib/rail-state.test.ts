@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { initializeRailOpen, RAIL_EVENT, toggleRailOpen, writeStoredOpen } from "./rail-state";
 
 const GIT_RAIL_EVENT = "bb-plugin-git:rail-open";
 const GIT_RAIL_STORAGE_KEY = "bb-plugin-git:rail-open";
-const SELF_RAIL_STORAGE_KEY = "bb-plugin-file-explorer:rail-open";
+const SELF_RAIL_STORAGE_KEY = "bb-plugin-workbench-explorer:rail-open";
 
 test("first toggle opens a rail whose default setting is closed", () => {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");

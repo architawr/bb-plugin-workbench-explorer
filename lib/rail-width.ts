@@ -5,8 +5,8 @@
  */
 import { useEffect, useState } from "react";
 
-export const RAIL_WIDTH_STORAGE_KEY = "bb-plugin-file-explorer:rail-width";
-export const RAIL_WIDTH_EVENT = "bb-plugin-file-explorer:rail-width";
+export const RAIL_WIDTH_STORAGE_KEY = "bb-plugin-workbench-explorer:rail-width";
+export const RAIL_WIDTH_EVENT = "bb-plugin-workbench-explorer:rail-width";
 
 export const DEFAULT_RAIL_WIDTH_PX = 216;
 const MIN_RAIL_WIDTH_PX = 160;

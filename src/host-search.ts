@@ -54,6 +54,18 @@ function escapeGlob(name: string): string {
   return name.replace(/[\\*?[\]{}!]/gu, (character) => `\\${character}`);
 }
 
+/**
+ * ripgrep matches a glob that holds a slash against the whole path it walked,
+ * and the run is rooted at `GUEST_ROOT` — so `src/**`, which means "under the
+ * pinned root's src", would never match. Such globs are anchored at the root;
+ * slash-free ones (`*.ts`) and ones that already start with a `**` segment
+ * match by name anyway.
+ */
+export function anchorGlob(glob: string): string {
+  if (!glob.includes("/") || glob.startsWith("**/")) return glob;
+  return `${GUEST_ROOT}/${glob.replace(/^\/+/u, "")}`;
+}
+
 function ripgrepArgs(
   input: SearchInFilesInput,
   ignoredDirs: ReadonlySet<string>,
@@ -70,8 +82,8 @@ function ripgrepArgs(
   for (const name of ignoredDirs) args.push("--glob", `!${escapeGlob(name)}`);
   // The panel's include and exclude fields are globs as typed, so they reach
   // ripgrep unescaped; the JavaScript matcher stays the authority either way.
-  for (const glob of parseGlobs(input.include ?? "")) args.push("--glob", glob);
-  for (const glob of parseGlobs(input.exclude ?? "")) args.push("--glob", `!${glob}`);
+  for (const glob of parseGlobs(input.include ?? "")) args.push("--glob", anchorGlob(glob));
+  for (const glob of parseGlobs(input.exclude ?? "")) args.push("--glob", `!${anchorGlob(glob)}`);
   for (const name of Object.keys(SKIP_FILE_NAMES)) args.push("--glob", `!${escapeGlob(name)}`);
   // ripgrep calls a file binary when its first bytes say so — a short file
   // whose bytes happen to be printable is still a picture, so the same

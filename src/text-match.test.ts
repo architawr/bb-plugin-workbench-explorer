@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { buildMatcher, countMatches, findMatches, replaceMatches } from "./text-match";
 
 const literal = { matchCase: false, wholeWord: false, useRegex: false };

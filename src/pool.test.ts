@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { mapLimit } from "./pool.ts";
 
 test("mapLimit keeps later items when one slot is empty", async () => {

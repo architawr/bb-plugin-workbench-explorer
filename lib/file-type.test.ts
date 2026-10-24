@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "bun:test";
 import { SETI, fileTypeIcon } from "./file-type.ts";
 
 test("README.md uses the info glyph", () => {

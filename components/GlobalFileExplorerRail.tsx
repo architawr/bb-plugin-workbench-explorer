@@ -24,11 +24,11 @@ import { TitleBarFileExplorerToggle } from "@/components/TitleBarFileExplorerTog
 import type { RootChoice } from "../shared";
 import type { rpcContract } from "../contract";
 
-const ROOT_STORAGE_KEY = "bb-plugin-file-explorer:pinned-root";
+const ROOT_STORAGE_KEY = "bb-plugin-workbench-explorer:pinned-root";
 
 /** The views the rail carries: names, the text inside them, and what changed. */
 type ExplorerTab = "files" | "search" | "changes";
-const TAB_STORAGE_KEY = "bb-plugin-file-explorer:tab";
+const TAB_STORAGE_KEY = "bb-plugin-workbench-explorer:tab";
 
 function readStoredTab(): ExplorerTab {
   try {
@@ -214,7 +214,7 @@ export function GlobalFileExplorerRail() {
         style={framed ? { borderColor: "var(--border-seam)" } : undefined}
       >
       <div className="flex h-[48px] shrink-0 items-center justify-between border-b border-sidebar-border pl-3 pr-1">
-        <span className="truncate text-sm font-medium text-muted-foreground">File Explorer</span>
+        <span className="truncate text-sm font-medium text-muted-foreground">Explorer</span>
         <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0 p-0"
           aria-label="Hide file explorer (⌘B)"
           onClick={() => writeStoredOpen(false)}>

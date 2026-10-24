@@ -1,4 +1,5 @@
 import { getRailWidthPx, subscribeRailWidth } from "@/lib/rail-width";
+import { getWindowFrame, subscribeWindowFrame } from "@/lib/window-frame";
 
 const holders = new Set<string>();
 /** Storage key for the git plugin's rail-open flag. Both plugins share the
@@ -17,7 +18,10 @@ function siblingRailOpen(): boolean {
 
 function syncBodyPadding(): void {
   if (holders.size > 0) {
-    document.body.style.paddingRight = `${getRailWidthPx()}px`;
+    // In a framed window the rail card keeps BB's lip to the window edge.
+    const frame = getWindowFrame();
+    const width = `${getRailWidthPx()}px`;
+    document.body.style.paddingRight = frame === null ? width : `calc(${width} + ${frame.lip})`;
     return;
   }
   // Own rail holders are empty — only clear the padding when the sibling rail
@@ -28,6 +32,10 @@ function syncBodyPadding(): void {
 
 /** The inset follows the handle, so the chat keeps up while the rail is dragged. */
 subscribeRailWidth(() => {
+  syncBodyPadding();
+});
+
+subscribeWindowFrame(() => {
   syncBodyPadding();
 });
 

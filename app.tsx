@@ -34,6 +34,13 @@ export default definePluginApp((app) => {
     banners: [{ id: "bridge", chrome: "bare", component: ChatDraftBridge }],
   });
 
+  app.commands.register({
+    id: "toggle-file-explorer",
+    title: "File Explorer: show or hide",
+    defaultShortcut: { key: "e", mod: true, shift: true },
+    run: toggleRailOpen,
+  });
+
   app.slots.commandPaletteAction({
     id: "find-file-in-tree",
     title: "File Explorer: find a file",

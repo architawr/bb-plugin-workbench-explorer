@@ -14,6 +14,8 @@ import { usePortalScopeProps } from "@/lib/portal-scope";
 import { RAIL_EVENT, initializeRailOpen, writeStoredOpen } from "@/lib/rail-state";
 import { getFindInFolder, subscribeFindInFolder } from "@/lib/find-in-folder";
 import { useRailWidthPx } from "@/lib/rail-width";
+import { useWindowFrame } from "@/lib/window-frame";
+import { TitleBarFileExplorerToggle } from "@/components/TitleBarFileExplorerToggle";
 import type { RootChoice } from "../shared";
 import type { rpcContract } from "../contract";
 
@@ -65,6 +67,7 @@ export function GlobalFileExplorerRail() {
   const { values, isLoading: settingsLoading } = useSettings();
   const compact = useIsCompactViewport();
   const railWidthPx = useRailWidthPx();
+  const frame = useWindowFrame();
   const portalScopeProps = usePortalScopeProps();
   const insetHolderId = useRef(`file-explorer:window:${Math.random().toString(36).slice(2)}`).current;
   const initialized = useRef(false);
@@ -162,19 +165,46 @@ export function GlobalFileExplorerRail() {
   }, [compact, insetHolderId, railOpen]);
 
   if (!ready) return null;
-  return createPortal(
+  // BB's desktop window is framed: a full-width title bar (z-index 44) sits
+  // over the top of the window. The rail starts below it as a card of its own,
+  // and its toggle joins BB's title-bar buttons, so nothing the user can click
+  // is left underneath the title bar.
+  const framed = frame !== null && !compact;
+  return <>
+    {framed ? <TitleBarFileExplorerToggle open={railOpen} /> : null}
+    {createPortal(
     <aside
       {...portalScopeProps}
-      className="fixed bottom-0 right-0 top-0 z-40 flex flex-col border-l border-sidebar-border bg-sidebar text-sidebar-foreground"
-      style={{ display: railOpen ? "flex" : "none", width: compact ? "100vw" : `${railWidthPx}px` }}
+      className="fixed bottom-0 right-0 top-0 z-40 flex-col text-sidebar-foreground"
+      style={{
+        display: railOpen ? "flex" : "none",
+        width: compact ? "100vw" : framed ? `calc(${railWidthPx}px + ${frame.lip})` : `${railWidthPx}px`,
+        ...(framed
+          ? {
+            paddingTop: frame.top,
+            paddingRight: frame.lip,
+            paddingBottom: frame.lip,
+            backgroundColor: "var(--sidebar)",
+            backgroundImage: "linear-gradient(var(--surface-recessed), var(--surface-recessed))",
+          }
+          : {}),
+      }}
       aria-label="File Explorer"
     >
       {compact ? null : <RailResizeHandle />}
+      <div
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col bg-sidebar",
+          framed ? "overflow-clip rounded-xl border" : "border-l border-sidebar-border",
+        )}
+        style={framed ? { borderColor: "var(--border-seam)" } : undefined}
+      >
       <div className="flex h-[48px] shrink-0 items-center justify-between border-b border-sidebar-border pl-3 pr-1">
         <span className="truncate text-sm font-medium text-muted-foreground">File Explorer</span>
         <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0 p-0"
-          aria-label="Hide file explorer" onClick={() => writeStoredOpen(false)}>
-          <Icon name="FileText" className="size-4" />
+          aria-label="Hide file explorer (⌘⇧E)"
+          onClick={() => writeStoredOpen(false)}>
+          <Icon name="X" className="size-4" />
         </Button>
       </div>
       <div className="flex shrink-0 items-center gap-1 border-b border-sidebar-border px-1.5 py-1">
@@ -239,7 +269,9 @@ export function GlobalFileExplorerRail() {
       ) : (
         <FileContentSearchPanel root={chosen?.workspace ?? null} />
       )}
+      </div>
     </aside>,
     document.body,
-  );
+    )}
+  </>;
 }

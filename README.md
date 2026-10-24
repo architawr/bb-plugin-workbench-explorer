@@ -2,7 +2,7 @@
 
 A VS Code-style file explorer for [BB](https://getbb.app), pinned to the right of the window beside every thread. The tree, BB's own editor tabs and the chat sit side by side, the way an editor's explorer, editor group and panel do.
 
-![Workbench Explorer](docs/screenshot.jpg)
+![Workbench Explorer](docs/screenshot.png)
 
 - **Git at a glance** — files and folders in VS Code's Git colours, a **Changes** tab with every uncommitted file, and diffs in a BB panel tab.
 - **Material Icon Theme** — the same file and folder icons as VS Code.

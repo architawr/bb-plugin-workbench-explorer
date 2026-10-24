@@ -49,6 +49,21 @@ export const hostContract = defineRpcContract({
     input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1) }).strict(),
     output: z.object({ patch: z.string().nullable() }).strict(),
   },
+  /** Move to this machine's Trash; `trashedPath` is null where there is none and the delete was permanent. */
+  trashPath: {
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), trashedPath: z.string().nullable() }).strict(),
+  },
+  /** Undo a trash: move `trashedPath` back to `relativePath`, never overwriting. */
+  restorePath: {
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), trashedPath: z.string().min(1) }).strict(),
+    output: z.object({ ok: z.boolean(), message: z.string().nullable() }).strict(),
+  },
+  /** Copy into a folder under a free name ("name copy", "name copy 2", …). */
+  copyPath: {
+    input: z.object({ rootPath: z.string().min(1), relativePath: z.string().min(1), destinationDirectory: z.string() }).strict(),
+    output: z.object({ ok: z.boolean(), relativePath: z.string().nullable(), message: z.string().nullable() }).strict(),
+  },
   removePath: {
     input: z.object({
       rootPath: z.string().min(1),

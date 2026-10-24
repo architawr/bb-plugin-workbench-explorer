@@ -35,6 +35,15 @@ Open in Explorer reveals the file in the system file manager: `open -R` on macOS
 - File and folder icons are the [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT, see `vendor/material-icon-theme/LICENSE`), resolved the way VS Code does. Regenerate them with `python3 -I scripts/gen-material-icons.py <unpacked material-icon-theme package>`.
 - In BB's desktop window the rail sits below the title bar, and its show/hide button joins the title-bar buttons. **File Explorer: show or hide** in the command palette toggles it (default ⌘⇧E).
 
+## Working with files
+
+- **Keyboard:** arrows move and open folders, Enter opens, F2 renames in place, Delete or ⌘⌫ deletes, ⌘C / ⌘X / ⌘V copy, cut and paste. Shift+arrows extend the selection.
+- **Selection:** ⌘/Ctrl-click toggles a row, Shift-click selects a range; Cut, Copy, Paste, Duplicate and Delete act on the whole selection.
+- **Drag and drop:** onto a folder to move into it, onto a file to move beside it, onto empty space to move to the root. A closed folder opens when held over.
+- **Delete goes to the Trash** (macOS, Linux), with an in-app confirmation and an **Undo** in the notification. Machines without a Trash delete permanently and say so.
+- **Duplicate and Paste** never overwrite: a taken name becomes `name copy`, `name copy 2`, …
+- **Collapse folders** sits beside Reload at the top of the tree.
+
 ## Settings
 
 ```

@@ -190,6 +190,23 @@ export const rpcContract = defineRpcContract({
       })
       .strict(),
     output: z.discriminatedUnion("ok", [
+      /** `trashedPath` undoes the delete; null where the machine has no Trash and it was permanent. */
+      z.object({ ok: z.literal(true), relativePath: z.string(), trashedPath: z.string().nullable() }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  },
+  /** Undo a delete: bring an item back from the Trash to where it was. */
+  restoreEntry: {
+    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1), trashedPath: z.string().min(1) }).strict(),
+    output: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true) }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  },
+  /** Paste or duplicate: copy into a folder of the same tree under a free name. */
+  copyEntry: {
+    input: z.object({ rootId: z.string().min(1), relativePath: z.string().min(1), destinationDirectory: z.string().max(4096) }).strict(),
+    output: z.discriminatedUnion("ok", [
       z.object({ ok: z.literal(true), relativePath: z.string() }),
       z.object({ ok: z.literal(false), message: z.string() }),
     ]),

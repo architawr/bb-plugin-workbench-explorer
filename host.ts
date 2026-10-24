@@ -3,6 +3,7 @@ import { hostContract } from "./host-contract";
 import { listHostDirectory, removeHostPath, statHostPath } from "./src/host-listing";
 import { searchHostInFiles } from "./src/host-search";
 import { hostGitDiff, hostGitStatus } from "./src/host-git-status";
+import { copyHostPath, restoreHostPath, trashHostPath } from "./src/host-trash";
 import { assertSafeRelative } from "./src/paths";
 
 export default experimental_defineHostEntry({
@@ -15,6 +16,10 @@ export default experimental_defineHostEntry({
       searchHostInFiles(rootPath, input, new Set(ignoredFolders)),
     removePath: ({ rootPath, relativePath }) => removeHostPath(rootPath, relativePath),
     gitStatus: ({ rootPath }) => hostGitStatus(rootPath),
+    trashPath: ({ rootPath, relativePath }) => trashHostPath(rootPath, relativePath),
+    restorePath: ({ rootPath, relativePath, trashedPath }) => restoreHostPath(rootPath, relativePath, trashedPath),
+    copyPath: ({ rootPath, relativePath, destinationDirectory }) =>
+      copyHostPath(rootPath, relativePath, destinationDirectory),
     gitDiff: async ({ rootPath, relativePath }) => {
       // `--no-index` would diff any file on the machine, so the path must stay
       // inside the root.

@@ -22,6 +22,7 @@ import {
   type ChatTarget,
 } from "@/lib/chat-draft-bus";
 import { requestFindInFolder } from "@/lib/find-in-folder";
+import { getFileClipboard, setFileClipboard, subscribeFileClipboard } from "@/lib/file-clipboard";
 import { horizontalAction, moveSelection, renameSelectionEnd, visibleRows } from "@/lib/tree-nav";
 import type { rpcContract } from "../contract";
 import type { TreeEntry, Workspace } from "../shared";
@@ -306,6 +307,8 @@ function TreeRow({
   const dropDirectory = isDir ? entry.relativePath : directoryOf(entry);
   const isDropTarget = isDir && tree.dropTarget === entry.relativePath;
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clipboard = useSyncExternalStore(subscribeFileClipboard, getFileClipboard, getFileClipboard);
+  const isCut = clipboard?.mode === "cut" && clipboard.rootId === workspace.rootId && clipboard.paths.includes(entry.relativePath);
   const childState = isOpen ? tree.dirs[entry.relativePath] : undefined;
   // A row git would not track is dimmed the way an editor draws an ignored
   // path, and says so in the tooltip. A label on every ignored row would cost
@@ -387,29 +390,17 @@ function TreeRow({
     tree.startCreate(directoryOf(entry), "folder");
   };
 
+  const selectionPaths = () => (isMultiSelected ? [...tree.selection] : [entry.relativePath]);
   const deleteThisEntry = () => {
-    if (isMultiSelected) {
-      const paths = [...tree.selection];
-      if (tree.confirmDelete && !window.confirm(`Delete ${paths.length} items?`)) return;
-      void tree.deletePaths(paths);
-      return;
-    }
-    if (tree.confirmDelete && !window.confirm(`Delete ${entry.name}?`)) return;
-    void rpc
-      .call("deleteEntry", {
-        rootId: workspace.rootId,
-        relativePath: entry.relativePath,
-      })
-      .then(async (result) => {
-        if (!result.ok) {
-          toast.error(result.message);
-          return;
-        }
-        await tree.forgetPath(result.relativePath);
-      })
-      .catch(() => {
-        toast.error("Could not delete the item.");
-      });
+    void tree.deletePaths(selectionPaths());
+  };
+  const copyThis = (mode: "copy" | "cut") => {
+    setFileClipboard({ rootId: workspace.rootId, paths: selectionPaths(), mode });
+  };
+  const pasteHere = () => void tree.pastePaths(dropDirectory);
+  const duplicateThis = () => {
+    setFileClipboard({ rootId: workspace.rootId, paths: selectionPaths(), mode: "copy" });
+    void tree.pastePaths(directoryOf(entry));
   };
 
   const renameThisEntry = () => {
@@ -567,6 +558,7 @@ function TreeRow({
               isSelected && "bg-state-active",
               isFocused && "font-medium",
               isDropTarget && "bg-state-active ring-1 ring-inset ring-ring",
+              isCut && "opacity-50",
             )}
             style={{ paddingLeft: 4 + depth * 10 }}
           >
@@ -631,6 +623,24 @@ function TreeRow({
             <Icon name="FolderPlus" className="size-4" />
             Create Folder
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => copyThis("cut")}>
+            <Icon name="ArrowTurnForward" className="size-4" />
+            Cut
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={() => copyThis("copy")}>
+            <Icon name="Copy" className="size-4" />
+            Copy
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={pasteHere} disabled={clipboard === null}>
+            <Icon name="CornerDownLeft" className="size-4" />
+            Paste
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={duplicateThis}>
+            <Icon name="Layers" className="size-4" />
+            Duplicate
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={renameThisEntry}>
             <Icon name="EditFile" className="size-4" />
             {isDir ? "Rename Folder" : "Rename File"}
@@ -791,6 +801,21 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
         if (selectedRow === undefined) return;
         tree.setEditing({ kind: "rename", path: selectedRow.relativePath, isDirectory: selectedRow.isDirectory });
         break;
+      case "c":
+      case "x":
+      case "v": {
+        if (!event.metaKey || event.shiftKey) return;
+        if (event.key === "v") {
+          const destination = selectedRow === undefined
+            ? ""
+            : selectedRow.isDirectory ? selectedRow.relativePath : selectedRow.parent;
+          void tree.pastePaths(destination);
+        } else {
+          if (tree.selection.size === 0) return;
+          setFileClipboard({ rootId: workspace.rootId, paths: [...tree.selection], mode: event.key === "x" ? "cut" : "copy" });
+        }
+        break;
+      }
       case "Delete":
       case "Backspace":
         if (selectedRow === undefined || (event.key === "Backspace" && !event.metaKey)) return;
@@ -909,6 +934,15 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
             </ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
+        <button
+          type="button"
+          aria-label="Collapse folders"
+          title="Collapse folders"
+          className="ml-auto flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-state-hover"
+          onClick={tree.collapseAll}
+        >
+          <Icon name="ChevronsUp" className="size-3" />
+        </button>
         <button
           type="button"
           aria-label="Reload folder"

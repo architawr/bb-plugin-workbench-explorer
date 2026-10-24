@@ -201,6 +201,30 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
       if (result.ok) invalidateListings(input.rootId);
       return result;
     },
+    restoreEntry: async ({ rootId, relativePath, trashedPath }) => {
+      const root = resolveRoot(rootId);
+      if (root === undefined) return { ok: false as const, message: "This file explorer panel is out of date — reopen it and try again." };
+      try {
+        const result = await host.call("restorePath", { rootPath: root.rootPath, relativePath, trashedPath }, { hostId: root.hostId });
+        if (!result.ok) return { ok: false as const, message: result.message ?? "Could not restore the item." };
+      } catch (cause) {
+        return { ok: false as const, message: cause instanceof Error ? cause.message : "Could not restore the item." };
+      }
+      invalidateListings(rootId);
+      return { ok: true as const };
+    },
+    copyEntry: async ({ rootId, relativePath, destinationDirectory }) => {
+      const root = resolveRoot(rootId);
+      if (root === undefined) return { ok: false as const, message: "This file explorer panel is out of date — reopen it and try again." };
+      try {
+        const result = await host.call("copyPath", { rootPath: root.rootPath, relativePath, destinationDirectory }, { hostId: root.hostId });
+        if (!result.ok || result.relativePath === null) return { ok: false as const, message: result.message ?? "Could not copy the item." };
+        invalidateListings(rootId);
+        return { ok: true as const, relativePath: result.relativePath };
+      } catch (cause) {
+        return { ok: false as const, message: cause instanceof Error ? cause.message : "Could not copy the item." };
+      }
+    },
     moveEntry: async (input) => {
       const result = await moveEntry(bb, host, input);
       if (result.ok) invalidateListings(input.rootId);

@@ -9,7 +9,7 @@ export type DeleteEntryInput = {
 };
 
 export type DeleteEntryResult =
-  | { ok: true; relativePath: string }
+  | { ok: true; relativePath: string; trashedPath: string | null }
   | { ok: false; message: string };
 
 /**
@@ -47,7 +47,7 @@ export async function deleteEntry(
 
   let result;
   try {
-    result = await host.call("removePath", {
+    result = await host.call("trashPath", {
       rootPath: root.rootPath,
       relativePath: input.relativePath,
     }, { hostId: root.hostId });
@@ -62,5 +62,5 @@ export async function deleteEntry(
     return { ok: false, message: "That item is not on disk." };
   }
 
-  return { ok: true, relativePath: toRelativePath(root.rootPath, absolute) };
+  return { ok: true, relativePath: toRelativePath(root.rootPath, absolute), trashedPath: result.trashedPath };
 }

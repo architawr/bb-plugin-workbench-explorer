@@ -5,6 +5,8 @@ import { subscribeReveal } from "@/lib/reveal-bus";
 import { includeRevealedChild, type VisibleReveal } from "@/lib/visible-reveal";
 import { refreshGitStatus, useGitStatus } from "@/hooks/useGitStatus";
 import { topLevelPaths, type VisibleRow } from "@/lib/tree-nav";
+import { requestConfirm } from "@/lib/confirm-bus";
+import { getFileClipboard, setFileClipboard } from "@/lib/file-clipboard";
 import { type rpcContract } from "../contract";
 import type { TreeEntry, Workspace } from "../shared";
 
@@ -334,11 +336,25 @@ export function useWorkspaceTree(root: Workspace | null) {
     setExtraSelection(new Set(moved.slice(1)));
   }, [reloadFolders, rpc, setDirExpanded]);
 
+  /**
+   * Move rows to the Trash, after asking when the setting says so, and offer
+   * an Undo that puts them back.
+   */
   const deletePaths = useCallback(async (paths: readonly string[]) => {
     const workspace = activeRef.current;
     if (workspace === null) return;
+    const targets = topLevelPaths(paths);
+    if (targets.length === 0) return;
+    const label = targets.length === 1 ? `"${targets[0]!.split("/").pop()}"` : `${targets.length} items`;
+    if (confirmDelete && !(await requestConfirm({
+      title: `Delete ${label}?`,
+      description: "It goes to the Trash, and you can undo this right after.",
+      confirmLabel: "Move to Trash",
+    }))) return;
     const touched = new Set<string>();
-    for (const path of topLevelPaths(paths)) {
+    const trashed: { relativePath: string; trashedPath: string }[] = [];
+    let permanent = false;
+    for (const path of targets) {
       try {
         const result = await rpc.call("deleteEntry", { rootId: workspace.rootId, relativePath: path });
         if (!result.ok) {
@@ -346,13 +362,69 @@ export function useWorkspaceTree(root: Workspace | null) {
           continue;
         }
         touched.add(parentPath(path));
+        if (result.trashedPath === null) permanent = true;
+        else trashed.push({ relativePath: path, trashedPath: result.trashedPath });
       } catch {
         toast.error(`Could not delete ${path}.`);
       }
     }
     setSelected(null);
     await reloadFolders(workspace, touched);
-  }, [reloadFolders, rpc, setSelected]);
+    if (trashed.length === 0) {
+      if (permanent) toast.success(`Deleted ${label} (this machine has no Trash).`);
+      return;
+    }
+    toast.success(`Moved ${label} to the Trash`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          void (async () => {
+            const restored: string[] = [];
+            for (const item of trashed) {
+              const result = await rpc.call("restoreEntry", { rootId: workspace.rootId, ...item }).catch(() => null);
+              if (result?.ok) restored.push(item.relativePath);
+              else toast.error(result?.message ?? `Could not restore ${item.relativePath}.`);
+            }
+            if (restored.length === 0) return;
+            await reloadFolders(workspace, restored.map(parentPath));
+            setFocusedRow(restored[0]!);
+            setExtraSelection(new Set(restored.slice(1)));
+          })();
+        },
+      },
+    });
+  }, [confirmDelete, reloadFolders, rpc, setSelected]);
+
+  /** Paste what Copy or Cut put on the tree's clipboard into `destination`. */
+  const pastePaths = useCallback(async (destination: string) => {
+    const workspace = activeRef.current;
+    const clipboard = getFileClipboard();
+    if (workspace === null || clipboard === null) return;
+    if (clipboard.rootId !== workspace.rootId) {
+      toast.error("Copied items belong to another folder of the explorer.");
+      return;
+    }
+    if (clipboard.mode === "cut") {
+      setFileClipboard(null);
+      await movePaths(clipboard.paths, destination);
+      return;
+    }
+    const pasted: string[] = [];
+    for (const path of topLevelPaths(clipboard.paths)) {
+      const result = await rpc.call("copyEntry", { rootId: workspace.rootId, relativePath: path, destinationDirectory: destination })
+        .catch(() => null);
+      if (result?.ok) pasted.push(result.relativePath);
+      else toast.error(result?.message ?? `Could not paste ${path}.`);
+    }
+    if (pasted.length === 0) return;
+    if (destination !== "") setDirExpanded(destination, true);
+    await reloadFolders(workspace, [destination]);
+    setFocusedRow(pasted[0]!);
+    setExtraSelection(new Set(pasted.slice(1)));
+  }, [movePaths, reloadFolders, rpc, setDirExpanded]);
+
+  /** VS Code's "Collapse Folders in Explorer". */
+  const collapseAll = useCallback(() => setExpanded(new Set([""])), []);
 
   const reload = useCallback(() => {
     setVisibleReveal(null);
@@ -384,6 +456,8 @@ export function useWorkspaceTree(root: Workspace | null) {
     setDropTarget,
     movePaths,
     deletePaths,
+    pastePaths,
+    collapseAll,
     reveal,
     toggleDir,
     setDirExpanded,

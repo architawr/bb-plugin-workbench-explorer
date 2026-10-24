@@ -16,7 +16,9 @@ function mockHost(rootPath: string): ExperimentalHostClient<typeof hostContract>
       if (typeof candidate === "string") relativePath = candidate;
     }
     const absolute = relativePath === "" ? rootPath : path.join(rootPath, relativePath);
-    if (method === "removePath") {
+    // The host moves to the Trash; this stand-in removes outright, as a
+    // machine without a Trash does, and says so with a null trashedPath.
+    if (method === "trashPath") {
       try {
         const stats = await lstat(absolute);
         if (stats.isSymbolicLink()) {
@@ -26,9 +28,9 @@ function mockHost(rootPath: string): ExperimentalHostClient<typeof hostContract>
         } else {
           await rm(absolute);
         }
-        return { ok: true };
+        return { ok: true, trashedPath: null };
       } catch (e: NodeJS.ErrnoException) {
-        if (e.code === "ENOENT") return { ok: false };
+        if (e.code === "ENOENT") return { ok: false, trashedPath: null };
         throw e;
       }
     }

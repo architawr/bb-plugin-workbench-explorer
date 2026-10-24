@@ -7,6 +7,7 @@ import { useIsCompactViewport } from "@/components/ui/hooks/use-compact-viewport
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { FileContentSearchPanel } from "@/components/FileContentSearchPanel";
 import { ChangesPanel } from "@/components/ChangesPanel";
+import { ConfirmHost } from "@/components/ConfirmHost";
 import { useGitStatus } from "@/hooks/useGitStatus";
 import { RailResizeHandle } from "@/components/RailResizeHandle";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -176,6 +177,7 @@ export function GlobalFileExplorerRail() {
   const framed = frame !== null && !compact;
   return <>
     {framed ? <TitleBarFileExplorerToggle open={railOpen} /> : null}
+    <ConfirmHost />
     {createPortal(
     <aside
       {...portalScopeProps}

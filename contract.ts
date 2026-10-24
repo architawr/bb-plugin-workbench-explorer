@@ -194,6 +194,20 @@ export const rpcContract = defineRpcContract({
       z.object({ ok: z.literal(false), message: z.string() }),
     ]),
   },
+  /** Move one file or folder into another folder of the same tree; never overwrites. */
+  moveEntry: {
+    input: z
+      .object({
+        rootId: z.string().min(1),
+        relativePath: z.string(),
+        destinationDirectory: z.string().max(4096),
+      })
+      .strict(),
+    output: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), relativePath: z.string() }),
+      z.object({ ok: z.literal(false), message: z.string() }),
+    ]),
+  },
   /** Rename one file or folder. The tree root is refused. */
   renameEntry: {
     input: z

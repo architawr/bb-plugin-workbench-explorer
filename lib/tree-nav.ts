@@ -87,3 +87,9 @@ export function renameSelectionEnd(name: string, isDirectory: boolean): number {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? dot : name.length;
 }
+
+/** Drop paths that sit inside another path of the batch: they travel with it. */
+export function topLevelPaths(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths)].sort();
+  return unique.filter((path) => !unique.some((other) => other !== path && path.startsWith(`${other}/`)));
+}

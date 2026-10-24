@@ -54,6 +54,22 @@ function makeCopyPathToClipboard(
   };
 }
 
+/** Rows dragged inside the tree carry this type; anything else dropped here is ignored. */
+const TREE_DRAG_TYPE = "application/x-bb-file-explorer";
+
+/** The dragged paths, if the drag came from this same tree. */
+function readTreeDrag(transfer: DataTransfer, rootId: string): string[] | null {
+  try {
+    const data: unknown = JSON.parse(transfer.getData(TREE_DRAG_TYPE));
+    if (data === null || typeof data !== "object") return null;
+    const { rootId: from, paths } = data as { rootId?: unknown; paths?: unknown };
+    if (from !== rootId || !Array.isArray(paths)) return null;
+    return paths.filter((path): path is string => typeof path === "string");
+  } catch {
+    return null;
+  }
+}
+
 /** Folder a new file should land in: the row itself if it is a folder, else its parent. */
 function directoryOf(entry: TreeEntry): string {
   if (entry.kind === "directory") return entry.relativePath;
@@ -283,7 +299,13 @@ function TreeRow({
   const rpc = useRpc<typeof rpcContract>();
   const isDir = entry.kind === "directory";
   const isOpen = isDir && tree.expanded.has(entry.relativePath);
-  const isSelected = tree.selected === entry.relativePath;
+  const isFocused = tree.selected === entry.relativePath;
+  const isSelected = tree.selection.has(entry.relativePath);
+  const isMultiSelected = isSelected && tree.selection.size > 1;
+  /** Where a drop on this row lands: into a folder, or beside a file. */
+  const dropDirectory = isDir ? entry.relativePath : directoryOf(entry);
+  const isDropTarget = isDir && tree.dropTarget === entry.relativePath;
+  const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const childState = isOpen ? tree.dirs[entry.relativePath] : undefined;
   // A row git would not track is dimmed the way an editor draws an ignored
   // path, and says so in the tooltip. A label on every ignored row would cost
@@ -297,9 +319,9 @@ function TreeRow({
   // A reveal can land far below the fold, so bring the row into view once it
   // becomes the selected one.
   useEffect(() => {
-    if (!isSelected) return;
+    if (!isFocused) return;
     rowRef.current?.scrollIntoView({ block: "nearest" });
-  }, [isSelected]);
+  }, [isFocused]);
 
   const onActivate = () => {
     tree.setSelected(entry.relativePath);
@@ -366,6 +388,12 @@ function TreeRow({
   };
 
   const deleteThisEntry = () => {
+    if (isMultiSelected) {
+      const paths = [...tree.selection];
+      if (tree.confirmDelete && !window.confirm(`Delete ${paths.length} items?`)) return;
+      void tree.deletePaths(paths);
+      return;
+    }
     if (tree.confirmDelete && !window.confirm(`Delete ${entry.name}?`)) return;
     void rpc
       .call("deleteEntry", {
@@ -480,7 +508,52 @@ function TreeRow({
             aria-selected={isSelected}
             aria-expanded={isDir ? isOpen : undefined}
             data-tree-path={entry.relativePath}
-            onClick={onActivate}
+            onClick={(event) => {
+              const rows = visibleRows(tree.dirs, tree.expanded);
+              if (event.metaKey || event.ctrlKey) tree.toggleSelection(entry.relativePath);
+              else if (event.shiftKey) tree.selectRange(entry.relativePath, rows);
+              else onActivate();
+            }}
+            onContextMenu={() => {
+              // Right-clicking outside the selection acts on that row alone, as in VS Code.
+              if (!isSelected) tree.setSelected(entry.relativePath);
+            }}
+            draggable
+            onDragStart={(event) => {
+              const paths = isMultiSelected ? [...tree.selection] : [entry.relativePath];
+              event.dataTransfer.effectAllowed = "copyMove";
+              event.dataTransfer.setData(TREE_DRAG_TYPE, JSON.stringify({ rootId: workspace.rootId, paths }));
+              // Outside the tree — a chat draft, a terminal — the drag reads as the absolute paths.
+              event.dataTransfer.setData("text/plain", paths.map((path) => absolutePathOf(workspace, path)).join("\n"));
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes(TREE_DRAG_TYPE)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = "move";
+              if (tree.dropTarget !== dropDirectory) tree.setDropTarget(dropDirectory);
+              // Hovering a closed folder opens it, so a drop can reach inside.
+              if (isDir && !isOpen && expandTimer.current === null) {
+                expandTimer.current = setTimeout(() => {
+                  expandTimer.current = null;
+                  tree.setDirExpanded(entry.relativePath, true);
+                }, 600);
+              }
+            }}
+            onDragLeave={() => {
+              if (expandTimer.current !== null) clearTimeout(expandTimer.current);
+              expandTimer.current = null;
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (expandTimer.current !== null) clearTimeout(expandTimer.current);
+              expandTimer.current = null;
+              tree.setDropTarget(null);
+              const drag = readTreeDrag(event.dataTransfer, workspace.rootId);
+              if (drag !== null) void tree.movePaths(drag, dropDirectory);
+            }}
+            onDragEnd={() => tree.setDropTarget(null)}
             title={
               isIgnored
                 ? `${entry.relativePath} — ignored by git`
@@ -491,7 +564,9 @@ function TreeRow({
             className={cn(
               "flex w-full min-w-0 items-center gap-0.5 rounded-[3px] py-px pr-1 text-left text-[11px] leading-5",
               "hover:bg-state-hover",
-              isSelected && "bg-state-active font-medium",
+              isSelected && "bg-state-active",
+              isFocused && "font-medium",
+              isDropTarget && "bg-state-active ring-1 ring-inset ring-ring",
             )}
             style={{ paddingLeft: 4 + depth * 10 }}
           >
@@ -565,7 +640,7 @@ function TreeRow({
             onSelect={deleteThisEntry}
           >
             <Icon name="Trash2" className="size-4" />
-            {isDir ? "Delete folder" : "Delete file"}
+            {isMultiSelected ? `Delete ${tree.selection.size} items` : isDir ? "Delete folder" : "Delete file"}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
@@ -686,7 +761,16 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
       case "End": {
         if (event.metaKey) return;
         const next = moveSelection(rows, selectedRow === undefined ? null : selected, event.key);
-        if (next !== null) select(next);
+        if (next === null) break;
+        if (event.shiftKey) {
+          tree.selectRange(next, rows);
+          const container = event.currentTarget;
+          requestAnimationFrame(() => {
+            container.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(next)}"]`)?.focus();
+          });
+        } else {
+          select(next);
+        }
         break;
       }
       case "ArrowLeft":
@@ -741,9 +825,29 @@ export function FileExplorerBody({ tree }: { tree: TreeModel }) {
       aria-label="Files"
       tabIndex={0}
       onKeyDown={onTreeKeyDown}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes(TREE_DRAG_TYPE)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        if (tree.dropTarget !== "") tree.setDropTarget("");
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) tree.setDropTarget(null);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        tree.setDropTarget(null);
+        const drag = readTreeDrag(event.dataTransfer, workspace.rootId);
+        if (drag !== null) void tree.movePaths(drag, "");
+      }}
       className="min-h-0 flex-1 overflow-auto py-1 outline-none"
     >
-      <div className="flex w-full items-center justify-between px-1.5 py-0.5">
+      <div
+        className={cn(
+          "flex w-full items-center justify-between rounded-[3px] px-1.5 py-0.5",
+          tree.dropTarget === "" && "bg-state-active ring-1 ring-inset ring-ring",
+        )}
+      >
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <button

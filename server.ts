@@ -6,6 +6,7 @@ import { createFile } from "./src/create-file";
 import { createFolder } from "./src/create-folder";
 import { deleteEntry } from "./src/delete-entry";
 import { renameEntry } from "./src/rename-entry";
+import { moveEntry } from "./src/move-entry";
 import { copyTextToClipboard, revealInExplorer } from "./src/os-actions";
 import { resolveRoot } from "./src/roots";
 import { registerMaterialIconRoute } from "./src/material-icons-route";
@@ -197,6 +198,11 @@ export default async function plugin(bb: BbPluginApi): Promise<void> {
     },
     deleteEntry: async (input) => {
       const result = await deleteEntry(bb, host, input);
+      if (result.ok) invalidateListings(input.rootId);
+      return result;
+    },
+    moveEntry: async (input) => {
+      const result = await moveEntry(bb, host, input);
       if (result.ok) invalidateListings(input.rootId);
       return result;
     },

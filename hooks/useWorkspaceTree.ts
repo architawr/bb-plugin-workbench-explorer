@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { subscribeReveal } from "@/lib/reveal-bus";
 import { includeRevealedChild, type VisibleReveal } from "@/lib/visible-reveal";
 import { refreshGitStatus, useGitStatus } from "@/hooks/useGitStatus";
+import { topLevelPaths, type VisibleRow } from "@/lib/tree-nav";
 import { type rpcContract } from "../contract";
 import type { TreeEntry, Workspace } from "../shared";
+
+function parentPath(relativePath: string): string {
+  const slash = relativePath.lastIndexOf("/");
+  return slash === -1 ? "" : relativePath.slice(0, slash);
+}
 
 function ancestorChain(relativePath: string): string[] {
   const chain = [""];
@@ -55,7 +61,52 @@ export function useWorkspaceTree(root: Workspace | null) {
   const dirsRef = useRef(dirs);
   dirsRef.current = dirs;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set([""]));
-  const [selected, setSelected] = useState<string | null>(null);
+  // `selected` is the focused row; `extraSelection` holds the rest of a
+  // multi-selection made with ⌘/Ctrl or Shift. A plain selection clears it.
+  const [selected, setFocusedRow] = useState<string | null>(null);
+  const [extraSelection, setExtraSelection] = useState<ReadonlySet<string>>(() => new Set());
+  const anchor = useRef<string | null>(null);
+  const setSelected = useCallback((value: SetStateAction<string | null>) => {
+    setFocusedRow((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      anchor.current = next;
+      return next;
+    });
+    setExtraSelection(new Set());
+  }, []);
+  const selection = useMemo(() => {
+    const all = new Set(extraSelection);
+    if (selected !== null) all.add(selected);
+    return all as ReadonlySet<string>;
+  }, [extraSelection, selected]);
+
+  /** ⌘/Ctrl-click: add or remove one row, keeping the rest. */
+  const toggleSelection = useCallback((path: string) => {
+    const next = new Set(selection);
+    const removing = next.has(path);
+    if (removing) next.delete(path);
+    else next.add(path);
+    const focus = removing ? (next.values().next().value ?? null) : path;
+    if (focus !== null) next.delete(focus);
+    anchor.current = path;
+    setFocusedRow(focus);
+    setExtraSelection(next);
+  }, [selection]);
+
+  /** Shift-click or Shift+arrow: every visible row from the anchor to `path`. */
+  const selectRange = useCallback((path: string, rows: readonly VisibleRow[]) => {
+    const from = rows.findIndex((row) => row.relativePath === (anchor.current ?? selected ?? path));
+    const to = rows.findIndex((row) => row.relativePath === path);
+    if (to === -1) return;
+    const [start, end] = from === -1 ? [to, to] : from < to ? [from, to] : [to, from];
+    const range = new Set(rows.slice(start, end + 1).map((row) => row.relativePath));
+    range.delete(path);
+    setFocusedRow(path);
+    setExtraSelection(range);
+  }, [selected]);
+
+  /** The folder a drag is over, highlighted until the drop or the drag leaves. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [visibleReveal, setVisibleReveal] = useState<VisibleReveal | null>(null);
   const [editing, setEditing] = useState<TreeEditing | null>(null);
   const rowActions = useRef(new Map<string, RowActions>());
@@ -245,6 +296,64 @@ export function useWorkspaceTree(root: Workspace | null) {
     refreshGitStatus(workspace.rootId);
   }, [loadDir]);
 
+  /** Reload the folders a batch touched, once each. */
+  const reloadFolders = useCallback(async (workspace: Workspace, folders: Iterable<string>) => {
+    await Promise.all([...new Set(folders)].map((folder) => loadDir(workspace, folder)));
+    refreshGitStatus(workspace.rootId);
+  }, [loadDir]);
+
+  /**
+   * Move the dragged rows into `destination`. A row inside another dragged
+   * folder travels with that folder, so it is not moved on its own.
+   */
+  const movePaths = useCallback(async (paths: readonly string[], destination: string) => {
+    const workspace = activeRef.current;
+    if (workspace === null) return;
+    const roots = topLevelPaths(paths);
+    const moved: string[] = [];
+    const touched = new Set<string>([destination]);
+    for (const path of roots) {
+      try {
+        const result = await rpc.call("moveEntry", { rootId: workspace.rootId, relativePath: path, destinationDirectory: destination });
+        if (!result.ok) {
+          toast.error(result.message);
+          continue;
+        }
+        if (result.relativePath !== path) {
+          touched.add(parentPath(path));
+          moved.push(result.relativePath);
+        }
+      } catch {
+        toast.error(`Could not move ${path}.`);
+      }
+    }
+    if (moved.length === 0) return;
+    if (destination !== "") setDirExpanded(destination, true);
+    await reloadFolders(workspace, touched);
+    setFocusedRow(moved[0]!);
+    setExtraSelection(new Set(moved.slice(1)));
+  }, [reloadFolders, rpc, setDirExpanded]);
+
+  const deletePaths = useCallback(async (paths: readonly string[]) => {
+    const workspace = activeRef.current;
+    if (workspace === null) return;
+    const touched = new Set<string>();
+    for (const path of topLevelPaths(paths)) {
+      try {
+        const result = await rpc.call("deleteEntry", { rootId: workspace.rootId, relativePath: path });
+        if (!result.ok) {
+          toast.error(result.message);
+          continue;
+        }
+        touched.add(parentPath(path));
+      } catch {
+        toast.error(`Could not delete ${path}.`);
+      }
+    }
+    setSelected(null);
+    await reloadFolders(workspace, touched);
+  }, [reloadFolders, rpc, setSelected]);
+
   const reload = useCallback(() => {
     setVisibleReveal(null);
     if (rerooted !== null) {
@@ -268,6 +377,13 @@ export function useWorkspaceTree(root: Workspace | null) {
     expanded,
     selected,
     setSelected,
+    selection,
+    toggleSelection,
+    selectRange,
+    dropTarget,
+    setDropTarget,
+    movePaths,
+    deletePaths,
     reveal,
     toggleDir,
     setDirExpanded,

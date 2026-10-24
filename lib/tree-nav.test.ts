@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { horizontalAction, moveSelection, renameSelectionEnd, visibleRows } from "./tree-nav";
+import { horizontalAction, moveSelection, renameSelectionEnd, topLevelPaths, visibleRows } from "./tree-nav";
 
 const dirs = {
   "": { status: "ready", entries: [
@@ -45,4 +45,9 @@ test("rename pre-selects the name without its extension", () => {
   assert.equal(renameSelectionEnd("app.test.ts", false), 8);
   assert.equal(renameSelectionEnd(".env", false), 4);
   assert.equal(renameSelectionEnd("my.folder", true), 9);
+});
+
+
+test("a batch drops paths that travel inside another of its folders", () => {
+  assert.deepEqual(topLevelPaths(["src/a.ts", "src", "README.md", "src/lib/b.ts", "srcx/c.ts"]), ["README.md", "src", "srcx/c.ts"]);
 });

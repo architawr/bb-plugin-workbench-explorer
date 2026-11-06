@@ -53,7 +53,7 @@ interface Scanner {
 
 function startScanner(
   threadId: string,
-  options: { validate?: PathValidator; resolveAnchors?: AnchorResolver } = {},
+  options: { validate?: PathValidator; resolveAnchors?: AnchorResolver; header?: Element } = {},
 ): Scanner {
   const controller = new AbortController();
   cleanups.push(() => controller.abort());
@@ -81,6 +81,7 @@ function startScanner(
     (message) => {
       scanner.reports.push(message);
     },
+    options.header ?? null,
   );
   return scanner;
 }
@@ -106,12 +107,22 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 }
 
 /** A rendered chat message holding `html`, the scope the scanner works in. */
-function message(html: string): HTMLElement {
+function message(html: string, parent: Element = document.body): HTMLElement {
   const element = document.createElement("div");
   element.className = "group/message";
   element.innerHTML = html;
-  document.body.appendChild(element);
+  parent.appendChild(element);
   return element;
+}
+
+/** One pane of bb's split layout, with an element in its thread header. */
+function splitPane(id: string): { pane: HTMLElement; header: HTMLElement } {
+  const pane = document.createElement("div");
+  pane.setAttribute("data-split-pane-id", id);
+  const header = document.createElement("span");
+  pane.appendChild(header);
+  document.body.appendChild(pane);
+  return { pane, header };
 }
 
 function codeNamed(container: Element, text: string): HTMLElement {
@@ -203,6 +214,21 @@ function clickReachesBb(anchor: HTMLAnchorElement): boolean {
   anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   anchor.removeEventListener("click", bb);
   return reached;
+}
+
+/** Counts reveal buttons added to or removed from the document from now on. */
+function watchButtonChurn(): () => number {
+  let churn = 0;
+  const watch = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)]) {
+        if (node instanceof Element && node.matches(BUTTON)) churn += 1;
+      }
+    }
+  });
+  watch.observe(document.body, { childList: true, subtree: true });
+  cleanups.push(() => watch.disconnect());
+  return () => churn;
 }
 
 test("the DOM harness gives a document, MutationObserver and window timers", async () => {
@@ -641,19 +667,23 @@ test("a fixed link whose href is no longer a file path loses the fix on the firs
 // --- Scanners side by side --------------------------------------------------
 
 test("scanners for two split panes leave each other's buttons and fixes alone", async () => {
-  // One scanner per visible thread, each sweeping every message in the document.
+  // One scanner per visible thread, each sweeping every message in the
+  // document: nothing marks which pane a message is in.
   const paneA = message(`<code>src/a.ts</code> ${NOTES_HTML}`);
   const paneB = message("<code>src/b.ts</code>");
   const codeA = codeNamed(paneA, "src/a.ts");
   const codeB = codeNamed(paneB, "src/b.ts");
   const anchor = notesLink(paneA);
-  // Pane A's scanner starts first, so pane B's sweeps run after it: thread B,
-  // where bb's link is fine, sees thread A's fix in place.
+  // Pane A's scanner starts first, so pane B's sweeps run after it: thread B
+  // has its own answer for the link, and sees thread A's fix in place.
   const a = startScanner(nextThread(), {
     validate: exists("src/a.ts"),
-    resolveAnchors: fixes(NOTES_FIX),
+    resolveAnchors: fixes({ ...NOTES_FIX, absolutePath: "/project-A/notes.md", hostId: "host-A" }),
   });
-  const b = startScanner(nextThread(), { validate: exists("src/b.ts") });
+  const b = startScanner(nextThread(), {
+    validate: exists("src/b.ts"),
+    resolveAnchors: fixes({ ...NOTES_FIX, absolutePath: "/project-B/notes.md", hostId: "host-B" }),
+  });
   await waitFor(
     () =>
       a.validateCalls.length > 0 && b.validateCalls.length > 0 &&
@@ -662,34 +692,109 @@ test("scanners for two split panes leave each other's buttons and fixes alone", 
   );
   await delay(SETTLE_MS);
 
-  let churn = 0;
-  const watch = new MutationObserver((records) => {
-    for (const record of records) {
-      for (const node of [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)]) {
-        if (node instanceof Element && node.matches(BUTTON)) churn += 1;
-      }
-    }
-  });
-  watch.observe(document.body, { childList: true, subtree: true });
-  cleanups.push(() => watch.disconnect());
+  const churn = watchButtonChurn();
   const buttonA = buttonOf(codeA);
   const buttonB = buttonOf(codeB);
   await delay(1500);
-  assert.equal(churn, 0, "no button added or removed while the chat is idle");
+  assert.equal(churn(), 0, "no button added or removed while the chat is idle");
   assert.equal(pathOf(buttonA), "src/a.ts");
   assert.equal(pathOf(buttonB), "src/b.ts");
   assert.equal(buttonOf(codeA), buttonA);
   assert.equal(buttonOf(codeB), buttonB);
-  assert.equal(anchor.dataset.fileExplorerFixedPath, "/repo/docs/notes.md");
+  assert.equal(anchor.dataset.fileExplorerFixedPath, "/project-A/notes.md");
   assert.equal(clickReachesBb(anchor), false);
   assert.equal(a.opened.length, 1);
   assert.deepEqual(b.opened, []);
 
-  // Once pane A's scanner stops, pane B's adopts what it left and drops what
-  // thread B lacks on its next sweep.
+  // Once pane A's scanner stops, pane B's adopts what it left: it drops what
+  // thread B lacks and puts its own answer on the link, with no chat change.
   a.abort();
-  paneB.appendChild(document.createElement("span"));
   await waitFor(() => buttonOf(codeA) === null, "the stopped thread's button to go");
-  assert.equal(anchor.hasAttribute(FIXED), false);
+  await waitFor(
+    () => anchor.dataset.fileExplorerFixedPath === "/project-B/notes.md",
+    "thread B's fix on the link",
+  );
   assert.equal(buttonOf(codeB), buttonB);
+  assert.equal(clickReachesBb(anchor), false);
+  assert.deepEqual(b.opened.map((fix) => fix.absolutePath), ["/project-B/notes.md"]);
+  assert.equal(a.opened.length, 1);
+}, SLOW);
+
+test("in bb's split panes each thread answers its own pane's links and buttons, even when another thread answers first", async () => {
+  const left = splitPane("pane-left");
+  const right = splitPane("pane-right");
+  const codeA = codeNamed(message("<code>src/shared.ts</code>", left.pane), "src/shared.ts");
+  const paneB = message(`<code>src/shared.ts</code> <a href="/B/notes.md">notes.md</a>`, right.pane);
+  const codeB = codeNamed(paneB, "src/shared.ts");
+  const anchor = paneB.querySelector<HTMLAnchorElement>("a")!;
+  const threadA = nextThread();
+  const threadB = nextThread();
+  // On thread A's host /B/notes.md is missing and A has a notes.md of its own;
+  // on thread B's host the link works, but B is slow to say so.
+  const a = startScanner(threadA, {
+    header: left.header,
+    validate: exists("src/shared.ts"),
+    resolveAnchors: fixes({
+      ...NOTES_FIX,
+      href: "/B/notes.md",
+      absolutePath: "/A/notes.md",
+      hostId: "host-A",
+    }),
+  });
+  const answerB = deferred<AnchorFix[]>();
+  const b = startScanner(threadB, {
+    header: right.header,
+    validate: exists("src/shared.ts"),
+    resolveAnchors: () => answerB.promise,
+  });
+  await waitFor(() => b.anchorCalls.length === 1, "thread B's question");
+  await delay(SETTLE_MS);
+  assert.deepEqual(a.anchorCalls, [], "thread A never asks about pane B's link");
+  assert.equal(anchor.hasAttribute(FIXED), false);
+
+  answerB.resolve([]);
+  await delay(SETTLE_MS);
+  assert.equal(anchor.hasAttribute(FIXED), false);
+  assert.equal(clickReachesBb(anchor), true);
+  assert.deepEqual(a.opened, []);
+  assert.deepEqual(b.opened, []);
+
+  const buttonA = buttonOf(codeA);
+  const buttonB = buttonOf(codeB);
+  assert.equal(buttonA?.dataset.fileExplorerThread, threadA);
+  assert.equal(buttonB?.dataset.fileExplorerThread, threadB);
+  const churn = watchButtonChurn();
+  await delay(1500);
+  assert.equal(churn(), 0, "no button added or removed while the chat is idle");
+  assert.equal(buttonOf(codeA), buttonA);
+  assert.equal(buttonOf(codeB), buttonB);
+
+  const reveals = listenReveals();
+  buttonB?.click();
+  buttonA?.click();
+  assert.deepEqual(reveals, [
+    { path: "src/shared.ts", threadId: threadB },
+    { path: "src/shared.ts", threadId: threadA },
+  ]);
+}, SLOW);
+
+test("a pane's new scanner reconciles what another pane's scanner adopted there while the pane had none", async () => {
+  const left = splitPane("pane-left");
+  const right = splitPane("pane-right");
+  const code = codeNamed(message("<code>src/a.ts</code>", left.pane), "src/a.ts");
+  const a = startScanner(nextThread(), { header: left.header, validate: exists("src/a.ts") });
+  const threadB = nextThread();
+  startScanner(threadB, { header: right.header, validate: exists("src/a.ts") });
+  await waitFor(() => buttonOf(code) !== null, "pane A's button");
+
+  // With pane A's scanner gone, pane B's adopts the button it left.
+  a.abort();
+  await waitFor(() => buttonOf(code)?.dataset.fileExplorerThread === threadB, "pane B's adoption");
+
+  // Pane A shows a thread whose workspace lacks the path.
+  const c = startScanner(nextThread(), { header: left.header, validate: exists() });
+  await waitFor(() => buttonOf(code) === null, "the new thread to drop the button");
+  await delay(SETTLE_MS);
+  assert.equal(buttonOf(code), null);
+  assert.deepEqual(c.validateCalls, [["src/a.ts"]]);
 }, SLOW);

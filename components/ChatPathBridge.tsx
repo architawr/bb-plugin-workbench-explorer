@@ -30,6 +30,9 @@ function useLatest<T>(value: T): { readonly current: T } {
  * `threadId`: another thread has its own key, because the same string may
  * exist in one workspace and not in another.
  *
+ * The hidden span sits in the thread header, so in a split layout the scanner
+ * can tell its own pane's messages from another pane's.
+ *
  * `mount` is the scanner to start; tests pass their own.
  */
 export function ChatPathBridge({
@@ -43,6 +46,7 @@ export function ChatPathBridge({
   const navigate = useBbNavigate();
   const rpcRef = useLatest(rpc);
   const navigateRef = useLatest(navigate);
+  const headerRef = useRef<HTMLSpanElement>(null);
 
   // The window tree opens previews through whichever navigator is current.
   useEffect(() => registerSurfaceNavigation(threadId, navigate), [navigate, threadId]);
@@ -74,11 +78,12 @@ export function ChatPathBridge({
       (message) => {
         void rpcRef.current.call("clientLog", { message }).catch(() => undefined);
       },
+      headerRef.current,
     );
     return () => {
       controller.abort();
     };
   }, [mount, threadId]);
 
-  return null;
+  return <span ref={headerRef} hidden />;
 }

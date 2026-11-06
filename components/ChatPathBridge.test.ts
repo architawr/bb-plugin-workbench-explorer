@@ -128,9 +128,12 @@ test("a re-render with a new rpc and navigate keeps the scanner and points it at
   currentNavigate = secondNavigate;
   await render(root, "bridge-1", mount);
   assert.equal(calls.length, 1, "the scanner was not restarted");
-  const [signal, threadId, validate, resolveAnchors, openFixed, report] = calls[0]!;
+  const [signal, threadId, validate, resolveAnchors, openFixed, report, header] = calls[0]!;
   assert.equal(signal.aborted, false);
   assert.equal(threadId, "bridge-1");
+  // The scanner finds the thread's pane from an element in its header.
+  assert.equal(header?.isConnected, true);
+  assert.equal((header as HTMLElement).hidden, true);
 
   assert.deepEqual([...(await validate(["src/a.ts", "src/b.ts"]))], ["src/a.ts"]);
   assert.deepEqual(await resolveAnchors([{ text: "notes.md", href: "/wrong/notes.md" }]), []);

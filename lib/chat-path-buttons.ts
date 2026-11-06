@@ -21,10 +21,13 @@
  * dropping whatever no longer matches its own verdicts.
  *
  * A split layout runs one scanner per visible thread over the same document.
- * Each button and fix records the thread it was made for, and a scanner
- * leaves alone what another running scanner made: otherwise each would drop
- * the other's buttons by its own verdicts, and the two would redraw them
- * forever.
+ * bb wraps each pane, its thread header and its messages, in one element, so
+ * a scanner leaves the messages of a pane whose header is another scanner's
+ * to that scanner: only the message's own thread knows whether its links
+ * work. Where no pane says, each button and fix records the thread it was
+ * made for, and a scanner leaves alone what another running scanner made:
+ * otherwise each would drop the other's buttons by its own verdicts, and the
+ * two would redraw them forever.
  */
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
@@ -44,13 +47,29 @@ const FIXED_KEY = "fileExplorerFixedKey";
 /** The thread a button was drawn, or a link fixed, for. */
 const THREAD_ATTR = "fileExplorerThread";
 
-/** Threads with a running scanner, counted: two panes may show one thread. */
-const running = new Map<string, number>();
+/** bb's element around one pane of a split layout, header and messages alike. */
+const PANE_ATTR = "data-split-pane-id";
 
-/** Made for another thread whose scanner still runs, so its verdicts decide it. */
-function ownedElsewhere(element: HTMLElement, threadId: string): boolean {
-  const owner = element.dataset[THREAD_ATTR];
-  return owner !== undefined && owner !== threadId && running.has(owner);
+function paneOf(element: Element | null): string | null {
+  return element?.closest(`[${PANE_ATTR}]`)?.getAttribute(PANE_ATTR) ?? null;
+}
+
+interface RunningScanner {
+  readonly threadId: string;
+  /** Where the scanner's thread header sits, when known. */
+  readonly header: Element | null;
+  /** Queue a sweep. */
+  readonly wake: () => void;
+}
+
+/** Two panes may show one thread, so a thread can have two scanners. */
+const scanners = new Set<RunningScanner>();
+
+function isRunning(threadId: string): boolean {
+  for (const scanner of scanners) {
+    if (scanner.threadId === threadId) return true;
+  }
+  return false;
 }
 
 // The app chrome uses the same inline elements as rendered Markdown. Restrict
@@ -61,13 +80,13 @@ function ownedElsewhere(element: HTMLElement, threadId: string): boolean {
 // ordinary text or a `file:` link as well, but must never receive a reveal button.
 const CHAT_MESSAGE_SELECTOR = ".group\\/message";
 
-/** Nodes of `selector` that sit inside a rendered message, not the whole document. */
-function chatQuery<T extends Element>(selector: string): T[] {
+/** Nodes of `selector` inside the rendered messages `keep` accepts, not the whole document. */
+function chatQuery<T extends Element>(selector: string, keep: (message: Element) => boolean): T[] {
   const found: T[] = [];
   const messages = document.querySelectorAll(CHAT_MESSAGE_SELECTOR);
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
-    if (message === undefined) continue;
+    if (message === undefined || !keep(message)) continue;
     const nodes = message.querySelectorAll(selector);
     for (let j = 0; j < nodes.length; j += 1) {
       const node = nodes[j];
@@ -217,7 +236,30 @@ export function mountChatPathButtons(
   resolveAnchors: AnchorResolver,
   openFixed: FixedOpener,
   report: Reporter = () => undefined,
+  /** An element in this thread's header, which finds the thread's pane. */
+  header: Element | null = null,
 ): void {
+  /** In a pane whose header is another scanner's: that pane's thread decides it. */
+  const inOtherPane = (element: Element): boolean => {
+    const pane = paneOf(element);
+    if (pane === null || pane === paneOf(header)) return false;
+    for (const scanner of scanners) {
+      if (paneOf(scanner.header) === pane) return true;
+    }
+    return false;
+  };
+  const ownMessage = (message: Element): boolean => !inOtherPane(message);
+  /**
+   * Made for another thread whose scanner still runs, so its verdicts decide
+   * it, unless it is in this thread's own pane.
+   */
+  const ownedElsewhere = (element: HTMLElement): boolean => {
+    const pane = paneOf(header);
+    if (pane !== null && paneOf(element) === pane) return false;
+    const owner = element.dataset[THREAD_ATTR];
+    return owner !== undefined && owner !== threadId && isRunning(owner);
+  };
+
   /** path → exists in the workspace. Absent means "not asked yet". */
   const known = verdictCache.recall(threadId);
   const pending = new Set<string>();
@@ -271,12 +313,12 @@ export function mountChatPathButtons(
     // Fixed links too: one whose href is no longer a file link would match
     // neither selector and would keep a fix a previous scanner applied.
     const anchors = new Set([
-      ...chatQuery<HTMLAnchorElement>('a[href^="file:"]'),
-      ...chatQuery<HTMLAnchorElement>('a[href^="/"]'),
-      ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
+      ...chatQuery<HTMLAnchorElement>('a[href^="file:"]', ownMessage),
+      ...chatQuery<HTMLAnchorElement>('a[href^="/"]', ownMessage),
+      ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`, ownMessage),
     ]);
     for (const anchor of anchors) {
-      if (anchor.hasAttribute(FIXED_ATTR) && ownedElsewhere(anchor, threadId)) continue;
+      if (anchor.hasAttribute(FIXED_ATTR) && ownedElsewhere(anchor)) continue;
       const href = anchorTargetPath(anchor);
       const text = textOf(anchor);
       if (href === null || text === "") {
@@ -362,7 +404,7 @@ export function mountChatPathButtons(
     // gives them its own "open" glyph, which is a different action from
     // revealing the file in the tree.
     sweepAnchors();
-    for (const code of chatQuery<Element>("code, a")) {
+    for (const code of chatQuery<Element>("code, a", ownMessage)) {
       // A `<code>` inside an `<a>` matches twice; let the inner one win so the
       // path gets one button, not two.
       const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
@@ -379,7 +421,7 @@ export function mountChatPathButtons(
         continue;
       }
       candidates += 1;
-      if (existing !== null && ownedElsewhere(existing, threadId)) continue;
+      if (existing !== null && ownedElsewhere(existing)) continue;
       const verdict = known.get(path);
       if (verdict === true) {
         wanted += 1;
@@ -492,6 +534,7 @@ export function mountChatPathButtons(
       onFixedAnchor(event);
       return;
     }
+    if (inOtherPane(button)) return;
     event.stopImmediatePropagation();
     event.stopPropagation();
     if (event.type !== "click" && event.type !== "auxclick") return;
@@ -511,7 +554,7 @@ export function mountChatPathButtons(
     const anchor = fixedAnchorFrom(event.target);
     // A fix made for another thread is answered by that thread's scanner, or,
     // when that one has stopped, by bb until this scanner's sweep re-asks.
-    if (anchor === null || anchor.dataset[THREAD_ATTR] !== threadId) return;
+    if (anchor === null || inOtherPane(anchor) || anchor.dataset[THREAD_ATTR] !== threadId) return;
     const absolutePath = anchor.dataset.fileExplorerFixedPath;
     const hostId = anchor.dataset.fileExplorerFixedHost;
     if (absolutePath === undefined || hostId === undefined) return;
@@ -574,7 +617,8 @@ export function mountChatPathButtons(
     if (relevant) queueSweep();
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  running.set(threadId, (running.get(threadId) ?? 0) + 1);
+  const self: RunningScanner = { threadId, header, wake: queueSweep };
+  scanners.add(self);
   // Stop working, but leave the buttons and link fixes where they are: the
   // next scanner adopts them on its first sweep. Removing them here made every
   // restart blink. The click listeners go with `signal`.
@@ -585,9 +629,12 @@ export function mountChatPathButtons(
       if (sweepTimer !== null) window.clearTimeout(sweepTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
       if (anchorTimer !== null) window.clearTimeout(anchorTimer);
-      const left = (running.get(threadId) ?? 1) - 1;
-      if (left > 0) running.set(threadId, left);
-      else running.delete(threadId);
+      scanners.delete(self);
+      // What this thread made is now the other scanners' to reconcile. Nothing
+      // here touches the document, so no chat change would tell them.
+      if (!isRunning(threadId)) {
+        for (const scanner of scanners) scanner.wake();
+      }
     },
     { once: true },
   );

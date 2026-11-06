@@ -1,8 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useBbNavigate, useRpc } from "@get-bb/plugin-sdk/app";
 import { mountChatPathButtons } from "@/lib/chat-path-buttons";
 import { registerSurfaceNavigation } from "@/lib/surface-navigation";
 import type { rpcContract } from "../contract";
+
+/** The latest value, for callbacks that must not restart an effect. */
+function useLatest<T>(value: T): { readonly current: T } {
+  const ref = useRef(value);
+  useLayoutEffect(() => {
+    ref.current = value;
+  });
+  return ref;
+}
 
 /**
  * Drives the chat path scanner, which needs RPC and a thread.
@@ -12,27 +21,43 @@ import type { rpcContract } from "../contract";
  * guess about the desktop app's routing, and when it did not match the
  * scanner never started at all.
  *
- * A new `rpc` or `navigate` identity remounts this effect. The scanner keeps
- * its verdicts in a module cache keyed by `threadId`, so that remount does
- * not ask the server about paths it already resolved. Another thread has its
- * own key: the same string may exist in one workspace and not in another.
+ * Only a new `threadId` restarts the scanner. The thread header hands this
+ * component a new `rpc` and `navigate` every few seconds; restarting on those
+ * made the reveal buttons blink, so the scanner reads them through refs
+ * instead. When the header remounts this component outright, the scanner
+ * still restarts, and leaves its buttons in place for the next one to adopt.
+ * The scanner keeps its verdicts in a module cache keyed by
+ * `threadId`: another thread has its own key, because the same string may
+ * exist in one workspace and not in another.
+ *
+ * `mount` is the scanner to start; tests pass their own.
  */
-export function ChatPathBridge({ threadId }: { threadId: string }) {
+export function ChatPathBridge({
+  threadId,
+  mount = mountChatPathButtons,
+}: {
+  threadId: string;
+  mount?: typeof mountChatPathButtons;
+}) {
   const rpc = useRpc<typeof rpcContract>();
   const navigate = useBbNavigate();
+  const rpcRef = useLatest(rpc);
+  const navigateRef = useLatest(navigate);
+
+  // The window tree opens previews through whichever navigator is current.
+  useEffect(() => registerSurfaceNavigation(threadId, navigate), [navigate, threadId]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const unregisterNavigation = registerSurfaceNavigation(threadId, navigate);
-    mountChatPathButtons(
+    mount(
       controller.signal,
       threadId,
       async (paths) => {
-        const { known } = await rpc.call("resolvePaths", { threadId, paths });
+        const { known } = await rpcRef.current.call("resolvePaths", { threadId, paths });
         return new Set(known);
       },
       async (anchors) => {
-        const { fixes } = await rpc.call("resolveFileAnchors", {
+        const { fixes } = await rpcRef.current.call("resolveFileAnchors", {
           threadId,
           anchors,
         });
@@ -41,20 +66,19 @@ export function ChatPathBridge({ threadId }: { threadId: string }) {
       (fix) => {
         // The file is named from another project as often as from this one, so
         // it is addressed by host and absolute path rather than by workspace.
-        navigate.experimental_openFilePreview({
+        navigateRef.current.experimental_openFilePreview({
           target: { kind: "host", hostId: fix.hostId, path: fix.absolutePath },
           location: null,
         });
       },
       (message) => {
-        void rpc.call("clientLog", { message }).catch(() => undefined);
+        void rpcRef.current.call("clientLog", { message }).catch(() => undefined);
       },
     );
     return () => {
       controller.abort();
-      unregisterNavigation();
     };
-  }, [navigate, rpc, threadId]);
+  }, [mount, threadId]);
 
   return null;
 }

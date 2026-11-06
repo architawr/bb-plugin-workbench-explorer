@@ -19,6 +19,12 @@
  * abort made them blink whenever the scanner restarted; instead the buttons
  * and link fixes stay, and the next scanner adopts them on its first sweep,
  * dropping whatever no longer matches its own verdicts.
+ *
+ * A split layout runs one scanner per visible thread over the same document.
+ * Each button and fix records the thread it was made for, and a scanner
+ * leaves alone what another running scanner made: otherwise each would drop
+ * the other's buttons by its own verdicts, and the two would redraw them
+ * forever.
  */
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
@@ -35,6 +41,17 @@ const FIXED_ATTR = "data-file-explorer-fixed";
  * meant for another file.
  */
 const FIXED_KEY = "fileExplorerFixedKey";
+/** The thread a button was drawn, or a link fixed, for. */
+const THREAD_ATTR = "fileExplorerThread";
+
+/** Threads with a running scanner, counted: two panes may show one thread. */
+const running = new Map<string, number>();
+
+/** Made for another thread whose scanner still runs, so its verdicts decide it. */
+function ownedElsewhere(element: HTMLElement, threadId: string): boolean {
+  const owner = element.dataset[THREAD_ATTR];
+  return owner !== undefined && owner !== threadId && running.has(owner);
+}
 
 // The app chrome uses the same inline elements as rendered Markdown. Restrict
 // mutation to a message container so a workspace folder named "Settings" can
@@ -100,11 +117,12 @@ function candidateOf(code: Element): string | null {
   return BARE_NAME_RE.test(text) ? text : null;
 }
 
-function makeButton(path: string): HTMLButtonElement {
+function makeButton(path: string, threadId: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.setAttribute(BUTTON_ATTR, "");
   button.dataset[PATH_ATTR] = path;
+  button.dataset[THREAD_ATTR] = threadId;
   button.title = `Reveal in the file explorer: ${path}`;
   button.setAttribute("aria-label", `Reveal in the file explorer: ${path}`);
   button.innerHTML = ICON_SVG;
@@ -207,12 +225,15 @@ export function mountChatPathButtons(
   let sweepQueued = false;
 
   const ensureButton = (code: Element, path: string): void => {
-    const existing = code.querySelector(`button[${BUTTON_ATTR}]`);
+    const existing = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
     if (existing !== null) {
-      if ((existing as HTMLElement).dataset[PATH_ATTR] === path) return;
+      if (existing.dataset[PATH_ATTR] === path) {
+        existing.dataset[THREAD_ATTR] = threadId;
+        return;
+      }
       existing.remove();
     }
-    code.appendChild(makeButton(path));
+    code.appendChild(makeButton(path, threadId));
   };
 
   /**
@@ -226,6 +247,7 @@ export function mountChatPathButtons(
   const applyFix = (anchor: HTMLAnchorElement, key: string, fix: AnchorFix): void => {
     anchor.setAttribute(FIXED_ATTR, "");
     anchor.dataset[FIXED_KEY] = key;
+    anchor.dataset[THREAD_ATTR] = threadId;
     anchor.dataset.fileExplorerFixedPath = fix.absolutePath;
     anchor.dataset.fileExplorerFixedHost = fix.hostId;
     anchor.dataset.fileExplorerFixedDir = fix.isDirectory ? "1" : "";
@@ -236,6 +258,7 @@ export function mountChatPathButtons(
     if (!anchor.hasAttribute(FIXED_ATTR)) return;
     anchor.removeAttribute(FIXED_ATTR);
     delete anchor.dataset[FIXED_KEY];
+    delete anchor.dataset[THREAD_ATTR];
     delete anchor.dataset.fileExplorerFixedPath;
     delete anchor.dataset.fileExplorerFixedHost;
     delete anchor.dataset.fileExplorerFixedDir;
@@ -253,6 +276,7 @@ export function mountChatPathButtons(
       ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
     ]);
     for (const anchor of anchors) {
+      if (anchor.hasAttribute(FIXED_ATTR) && ownedElsewhere(anchor, threadId)) continue;
       const href = anchorTargetPath(anchor);
       const text = textOf(anchor);
       if (href === null || text === "") {
@@ -260,8 +284,11 @@ export function mountChatPathButtons(
         continue;
       }
       const key = anchorKey(text, href);
-      // The link changed under a fix made for its old text or target.
-      if (anchor.dataset[FIXED_KEY] !== key) clearFix(anchor);
+      // The link changed under a fix made for its old text or target, or the
+      // fix was made for another thread, whose workspace may differ.
+      if (anchor.dataset[FIXED_KEY] !== key || anchor.dataset[THREAD_ATTR] !== threadId) {
+        clearFix(anchor);
+      }
       const fix = anchorFixes.get(key);
       if (fix === undefined) {
         pendingAnchors.set(key, { text, href });
@@ -346,11 +373,13 @@ export function mountChatPathButtons(
         hasNativePreviewGlyph(code.closest("a") as HTMLAnchorElement)) continue;
       codes += 1;
       const path = previewPath ?? candidateOf(code);
+      const existing = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
       if (path === null) {
-        code.querySelector(`button[${BUTTON_ATTR}]`)?.remove();
+        existing?.remove();
         continue;
       }
       candidates += 1;
+      if (existing !== null && ownedElsewhere(existing, threadId)) continue;
       const verdict = known.get(path);
       if (verdict === true) {
         wanted += 1;
@@ -358,8 +387,8 @@ export function mountChatPathButtons(
         continue;
       }
       if (verdict === false) {
-        // A button a previous scanner drew, perhaps for another thread.
-        code.querySelector(`button[${BUTTON_ATTR}]`)?.remove();
+        // A button a stopped scanner drew, perhaps for another thread.
+        existing?.remove();
         continue;
       }
       // Not asked yet: a button left by a previous scanner stays until the
@@ -480,7 +509,9 @@ export function mountChatPathButtons(
    */
   const onFixedAnchor = (event: Event): void => {
     const anchor = fixedAnchorFrom(event.target);
-    if (anchor === null) return;
+    // A fix made for another thread is answered by that thread's scanner, or,
+    // when that one has stopped, by bb until this scanner's sweep re-asks.
+    if (anchor === null || anchor.dataset[THREAD_ATTR] !== threadId) return;
     const absolutePath = anchor.dataset.fileExplorerFixedPath;
     const hostId = anchor.dataset.fileExplorerFixedHost;
     if (absolutePath === undefined || hostId === undefined) return;
@@ -543,6 +574,7 @@ export function mountChatPathButtons(
     if (relevant) queueSweep();
   });
   observer.observe(document.body, { childList: true, subtree: true });
+  running.set(threadId, (running.get(threadId) ?? 0) + 1);
   // Stop working, but leave the buttons and link fixes where they are: the
   // next scanner adopts them on its first sweep. Removing them here made every
   // restart blink. The click listeners go with `signal`.
@@ -553,6 +585,9 @@ export function mountChatPathButtons(
       if (sweepTimer !== null) window.clearTimeout(sweepTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
       if (anchorTimer !== null) window.clearTimeout(anchorTimer);
+      const left = (running.get(threadId) ?? 1) - 1;
+      if (left > 0) running.set(threadId, left);
+      else running.delete(threadId);
     },
     { once: true },
   );

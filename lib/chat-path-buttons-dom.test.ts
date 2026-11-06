@@ -46,6 +46,8 @@ interface Scanner {
   readonly validateCalls: string[][];
   readonly anchorCalls: { text: string; href: string }[][];
   readonly reports: string[];
+  /** Fixed links this scanner opened. */
+  readonly opened: AnchorFix[];
   abort(): void;
 }
 
@@ -59,6 +61,7 @@ function startScanner(
     validateCalls: [],
     anchorCalls: [],
     reports: [],
+    opened: [],
     abort: () => controller.abort(),
   };
   mountChatPathButtons(
@@ -72,7 +75,9 @@ function startScanner(
       scanner.anchorCalls.push(anchors.map((anchor) => ({ ...anchor })));
       return (options.resolveAnchors ?? fixes())(anchors);
     },
-    () => undefined,
+    (fix) => {
+      scanner.opened.push(fix);
+    },
     (message) => {
       scanner.reports.push(message);
     },
@@ -183,6 +188,22 @@ function notesLink(container: Element): HTMLAnchorElement {
 }
 
 const NOTES_HTML = '<a href="file:///wrong/notes.md">notes.md</a>';
+
+/**
+ * Clicks `anchor` and tells whether the click got past every scanner to bb,
+ * which would then open the link's own href.
+ */
+function clickReachesBb(anchor: HTMLAnchorElement): boolean {
+  let reached = false;
+  const bb = (event: Event): void => {
+    reached = true;
+    event.preventDefault();
+  };
+  anchor.addEventListener("click", bb);
+  anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  anchor.removeEventListener("click", bb);
+  return reached;
+}
 
 test("the DOM harness gives a document, MutationObserver and window timers", async () => {
   const element = message("<code>src/a.ts</code>");
@@ -496,11 +517,37 @@ test("a fixed link whose key is still cached keeps its fix without asking", asyn
   first.abort();
 
   const second = startScanner(threadId);
+  assert.equal(clickReachesBb(anchor), false, "answered before the first sweep");
+  assert.deepEqual(second.opened.map((fix) => fix.absolutePath), ["/repo/docs/notes.md"]);
   await firstSweep(second);
   assert.equal(anchor.dataset.fileExplorerFixedPath, "/repo/docs/notes.md");
   await delay(SETTLE_MS);
   assert.equal(anchor.hasAttribute(FIXED), true);
   assert.deepEqual(second.anchorCalls, []);
+}, SLOW);
+
+test("a link fixed for another thread is left to bb by the next thread's scanner, even when its lookups fail", async () => {
+  const anchor = notesLink(message(NOTES_HTML));
+  const first = startScanner(nextThread(), {
+    resolveAnchors: fixes({ ...NOTES_FIX, absolutePath: "/project-A/notes.md", hostId: "host-A" }),
+  });
+  await waitFor(() => anchor.hasAttribute(FIXED), "the first thread's fix");
+  first.abort();
+
+  const second = startScanner(nextThread(), {
+    resolveAnchors: async () => {
+      throw new Error("offline");
+    },
+  });
+  assert.equal(clickReachesBb(anchor), true, "before the first sweep");
+  await waitFor(() => second.anchorCalls.length === 1, "the failed lookup");
+  await delay(100);
+  assert.equal(anchor.hasAttribute(FIXED), false);
+  assert.equal(anchor.dataset.fileExplorerFixedPath, undefined);
+  assert.equal(anchor.dataset.fileExplorerFixedHost, undefined);
+  assert.equal(clickReachesBb(anchor), true, "after the failed lookup");
+  assert.deepEqual(first.opened, []);
+  assert.deepEqual(second.opened, []);
 }, SLOW);
 
 test("a fixed link whose text or href changed loses the fix at once and is asked again", async () => {
@@ -589,4 +636,60 @@ test("a fixed link whose href is no longer a file path loses the fix on the firs
   assert.equal(anchor.hasAttribute(FIXED), false);
   assert.equal(anchor.dataset.fileExplorerFixedPath, undefined);
   assert.equal(anchor.dataset.fileExplorerFixedHost, undefined);
+}, SLOW);
+
+// --- Scanners side by side --------------------------------------------------
+
+test("scanners for two split panes leave each other's buttons and fixes alone", async () => {
+  // One scanner per visible thread, each sweeping every message in the document.
+  const paneA = message(`<code>src/a.ts</code> ${NOTES_HTML}`);
+  const paneB = message("<code>src/b.ts</code>");
+  const codeA = codeNamed(paneA, "src/a.ts");
+  const codeB = codeNamed(paneB, "src/b.ts");
+  const anchor = notesLink(paneA);
+  // Pane A's scanner starts first, so pane B's sweeps run after it: thread B,
+  // where bb's link is fine, sees thread A's fix in place.
+  const a = startScanner(nextThread(), {
+    validate: exists("src/a.ts"),
+    resolveAnchors: fixes(NOTES_FIX),
+  });
+  const b = startScanner(nextThread(), { validate: exists("src/b.ts") });
+  await waitFor(
+    () =>
+      a.validateCalls.length > 0 && b.validateCalls.length > 0 &&
+      a.anchorCalls.length > 0 && b.anchorCalls.length > 0,
+    "both threads' answers",
+  );
+  await delay(SETTLE_MS);
+
+  let churn = 0;
+  const watch = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)]) {
+        if (node instanceof Element && node.matches(BUTTON)) churn += 1;
+      }
+    }
+  });
+  watch.observe(document.body, { childList: true, subtree: true });
+  cleanups.push(() => watch.disconnect());
+  const buttonA = buttonOf(codeA);
+  const buttonB = buttonOf(codeB);
+  await delay(1500);
+  assert.equal(churn, 0, "no button added or removed while the chat is idle");
+  assert.equal(pathOf(buttonA), "src/a.ts");
+  assert.equal(pathOf(buttonB), "src/b.ts");
+  assert.equal(buttonOf(codeA), buttonA);
+  assert.equal(buttonOf(codeB), buttonB);
+  assert.equal(anchor.dataset.fileExplorerFixedPath, "/repo/docs/notes.md");
+  assert.equal(clickReachesBb(anchor), false);
+  assert.equal(a.opened.length, 1);
+  assert.deepEqual(b.opened, []);
+
+  // Once pane A's scanner stops, pane B's adopts what it left and drops what
+  // thread B lacks on its next sweep.
+  a.abort();
+  paneB.appendChild(document.createElement("span"));
+  await waitFor(() => buttonOf(codeA) === null, "the stopped thread's button to go");
+  assert.equal(anchor.hasAttribute(FIXED), false);
+  assert.equal(buttonOf(codeB), buttonB);
 }, SLOW);

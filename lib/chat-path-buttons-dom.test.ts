@@ -545,6 +545,30 @@ test("a leftover button for another path is replaced when the current path exist
   assert.equal(code.querySelectorAll(BUTTON).length, 1);
 }, SLOW);
 
+test("a leftover button in a link's code moves onto the link when bb gives the link its preview glyph", async () => {
+  const threadId = nextThread();
+  const container = message('<a href="file:///repo/a.ts"><code>/repo/a.ts</code></a>');
+  const anchor = container.querySelector<HTMLAnchorElement>("a")!;
+  const code = codeNamed(container, "/repo/a.ts");
+  const first = startScanner(threadId, { validate: exists("/repo/a.ts") });
+  await waitFor(() => buttonOf(code) !== null, "the button on the code");
+  const button = buttonOf(code)!;
+  first.abort();
+  // React kept the code and its button, and bb added its glyph to the link.
+  anchor.insertAdjacentHTML("beforeend", "<svg></svg>");
+
+  const second = startScanner(threadId);
+  await firstSweep(second);
+  assert.equal(button.parentElement, anchor, "the same button, now the link's");
+  assert.equal(container.querySelectorAll(BUTTON).length, 1);
+  const reveals = listenReveals();
+  assert.equal(clickReachesBb(button), false);
+  assert.deepEqual(reveals, [{ path: "/repo/a.ts", threadId }]);
+  await delay(SETTLE_MS);
+  assert.equal(container.querySelectorAll(BUTTON).length, 1);
+  assert.deepEqual(second.validateCalls, []);
+}, SLOW);
+
 test("a leftover button for another path goes on the first sweep when the current path is not yet known", async () => {
   const threadId = nextThread();
   const code = codeNamed(message("<code>src/old.ts</code>"), "src/old.ts");

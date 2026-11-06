@@ -288,6 +288,9 @@ export function mountChatPathButtons(
     if (existing !== null) {
       if (existing.dataset[PATH_ATTR] === path) {
         existing.dataset[THREAD_ATTR] = threadId;
+        // Drawn in the code inside a link that has since become a preview
+        // link: the link carries it now, and its clicks are checked there.
+        if (existing.parentElement !== code) code.appendChild(existing);
         return;
       }
       existing.remove();
@@ -636,7 +639,14 @@ export function mountChatPathButtons(
     );
     if (relevant) queueSweep();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // React changes a kept link's href, or a text node's value, in place, and a
+  // scanner lives as long as its thread, so it must see those changes itself.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributeFilter: ["href"],
+  });
   const self: RunningScanner = { threadId, header, wake: queueSweep };
   scanners.add(self);
   // Stop working, but leave the buttons and link fixes where they are: the

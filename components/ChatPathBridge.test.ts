@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { afterAll, afterEach, beforeAll, mock, test } from "bun:test";
-import { act, createElement } from "react";
+import { act, createElement, Fragment } from "react";
 import type { Root } from "react-dom/client";
 import type { AnchorFix } from "../shared";
-import type { mountChatPathButtons } from "../lib/chat-path-buttons";
-import { installDom, type DomEnvironment } from "../lib/dom-test-helper";
+import { mountChatPathButtons } from "../lib/chat-path-buttons";
+import { delay, installDom, waitFor, type DomEnvironment } from "../lib/dom-test-helper";
+import { subscribeReveal, type RevealRequest } from "../lib/reveal-bus";
 import { surfaceNavigation } from "../lib/surface-navigation";
 
 type Mount = typeof mountChatPathButtons;
@@ -20,13 +21,17 @@ interface FakeNavigate {
   experimental_openFilePreview(options: unknown): boolean;
 }
 
-function fakeRpc(): FakeRpc {
+/** An rpc for a workspace that holds exactly `existing`. */
+function fakeRpc(...existing: string[]): FakeRpc {
+  const present = new Set(existing.length > 0 ? existing : ["src/a.ts"]);
   const calls: [string, unknown][] = [];
   return {
     calls,
     async call(method, input) {
       calls.push([method, input]);
-      if (method === "resolvePaths") return { known: ["src/a.ts"] };
+      if (method === "resolvePaths") {
+        return { known: (input as { paths: string[] }).paths.filter((path) => present.has(path)) };
+      }
       if (method === "resolveFileAnchors") return { fixes: [] };
       return {};
     },
@@ -103,6 +108,12 @@ async function render(root: Root, threadId: string, mount: Mount): Promise<void>
     root.render(createElement(ChatPathBridge, { threadId, mount }));
   });
 }
+
+/**
+ * Past every sweep the scanner had queued: one that finds work can queue two
+ * more, 750 ms apart. After that only a change in the chat wakes it.
+ */
+const IDLE_MS = 2000;
 
 const FIX: AnchorFix = {
   text: "notes.md",
@@ -183,3 +194,65 @@ test("unmounting stops the scanner and drops the thread's navigator", async () =
   assert.equal(calls[0]![0].aborted, true);
   assert.equal(surfaceNavigation("bridge-4"), null);
 });
+
+test("a link whose href alone changes gets a button for its new file from the scanner that keeps running", async () => {
+  const signals: AbortSignal[] = [];
+  // One identity for every render, as the default has, so only a new thread restarts it.
+  const mount: Mount = (...args) => {
+    signals.push(args[0]);
+    mountChatPathButtons(...args);
+  };
+  // The header and a message React owns, with one of bb's preview links.
+  const view = (href: string, label: string) =>
+    createElement(
+      Fragment,
+      null,
+      createElement(ChatPathBridge, { threadId: "bridge-5", mount }),
+      createElement("div", { className: "group/message" }, createElement("a", { href }, label, createElement("svg"))),
+    );
+  const root = createTestRoot();
+  currentRpc = fakeRpc("/repo/old.ts", "/repo/new.ts");
+  currentNavigate = fakeNavigate();
+  await act(async () => root.render(view("file:///repo/old.ts", "old.ts")));
+  const anchor = document.querySelector<HTMLAnchorElement>(".group\\/message a")!;
+  const buttonPath = (): string | undefined =>
+    anchor.querySelector<HTMLElement>("button[data-file-explorer-reveal]")?.dataset.fileExplorerRevealPath;
+  await waitFor(() => buttonPath() === "/repo/old.ts", "the button for the old file");
+  await delay(IDLE_MS);
+
+  // bb's next render: a new rpc and navigate, and the same link with a new href.
+  const nextRpc = fakeRpc("/repo/old.ts", "/repo/new.ts");
+  currentRpc = nextRpc;
+  currentNavigate = fakeNavigate();
+  await act(async () => root.render(view("file:///repo/new.ts", "old.ts")));
+  assert.equal(document.querySelector(".group\\/message a"), anchor, "React kept the link");
+  await waitFor(() => buttonPath() === "/repo/new.ts", "the button for the new file");
+  assert.equal(signals.length, 1, "the scanner was not restarted");
+  assert.equal(signals[0]!.aborted, false);
+  assert.equal(anchor.querySelectorAll("button[data-file-explorer-reveal]").length, 1);
+  const asked = nextRpc.calls.filter(([method]) => method === "resolvePaths").map(([, input]) => input);
+  assert.deepEqual(asked, [{ threadId: "bridge-5", paths: ["/repo/new.ts"] }]);
+  const reveals: RevealRequest[] = [];
+  const unsubscribe = subscribeReveal((request) => reveals.push(request));
+  reveals.length = 0;
+  anchor.querySelector<HTMLElement>("button[data-file-explorer-reveal]")!.click();
+  unsubscribe();
+  assert.deepEqual(reveals, [{ path: "/repo/new.ts", threadId: "bridge-5" }]);
+
+  await delay(IDLE_MS);
+
+  // A new label alone is a text change, not a new child, and is asked about too.
+  await act(async () => root.render(view("file:///repo/new.ts", "new.ts")));
+  assert.equal(document.querySelector(".group\\/message a"), anchor, "React kept the link");
+  const anchorsAsked = (): unknown[] =>
+    nextRpc.calls.filter(([method]) => method === "resolveFileAnchors").map(([, input]) => input);
+  await waitFor(
+    () => JSON.stringify(anchorsAsked()).includes('"text":"new.ts"'),
+    "the link's new label asked about",
+  );
+  assert.deepEqual(anchorsAsked().at(-1), {
+    threadId: "bridge-5",
+    anchors: [{ text: "new.ts", href: "/repo/new.ts" }],
+  });
+  assert.equal(signals.length, 1, "the scanner was not restarted");
+}, 15_000);

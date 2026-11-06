@@ -195,6 +195,23 @@ function hasNativePreviewGlyph(anchor: HTMLAnchorElement): boolean {
   return next !== null && (next.matches("svg, img") || next.querySelector("svg, img") !== null);
 }
 
+/**
+ * The path a button in `code` stands for: a link with bb's preview glyph
+ * names its file href, anything else its own text; null when that is not a
+ * path. Undefined when the code or link inside it, or the preview link
+ * around it, carries the button instead, so a path gets one button, not two.
+ */
+function buttonPathFor(code: Element): string | null | undefined {
+  const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
+    ? anchorTargetPath(code)
+    : null;
+  if (previewPath !== null) return previewPath;
+  if (code.querySelector("code, a") !== null) return undefined;
+  const link = code.closest("a");
+  if (!(code instanceof HTMLAnchorElement) && link !== null && hasNativePreviewGlyph(link)) return undefined;
+  return candidateOf(code);
+}
+
 function anchorKey(text: string, href: string): string {
   return `${text}\n${href}`;
 }
@@ -405,16 +422,9 @@ export function mountChatPathButtons(
     // revealing the file in the tree.
     sweepAnchors();
     for (const code of chatQuery<Element>("code, a", ownMessage)) {
-      // A `<code>` inside an `<a>` matches twice; let the inner one win so the
-      // path gets one button, not two.
-      const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
-        ? anchorTargetPath(code)
-        : null;
-      if (previewPath === null && code.querySelector("code, a") !== null) continue;
-      if (!(code instanceof HTMLAnchorElement) && code.closest("a") !== null &&
-        hasNativePreviewGlyph(code.closest("a") as HTMLAnchorElement)) continue;
+      const path = buttonPathFor(code);
+      if (path === undefined) continue;
       codes += 1;
-      const path = previewPath ?? candidateOf(code);
       const existing = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
       if (path === null) {
         existing?.remove();
@@ -516,7 +526,12 @@ export function mountChatPathButtons(
 
   const buttonFrom = (target: EventTarget | null): HTMLElement | null => {
     if (target === null || !(target instanceof Element)) return null;
-    return target.closest<HTMLElement>(`button[${BUTTON_ATTR}]`);
+    const button = target.closest<HTMLElement>(`button[${BUTTON_ATTR}]`);
+    const container = button?.parentElement ?? null;
+    if (button === null || container === null) return null;
+    // One drawn before its link or code changed would reveal the old path: the
+    // click is the link's until the sweep redraws the button.
+    return buttonPathFor(container) === button.dataset[PATH_ATTR] ? button : null;
   };
 
   /**

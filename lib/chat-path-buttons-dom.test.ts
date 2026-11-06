@@ -201,18 +201,18 @@ function notesLink(container: Element): HTMLAnchorElement {
 const NOTES_HTML = '<a href="file:///wrong/notes.md">notes.md</a>';
 
 /**
- * Clicks `anchor` and tells whether the click got past every scanner to bb,
- * which would then open the link's own href.
+ * Clicks `target`, a link or a button, and tells whether the click got past
+ * every scanner to bb, which would then open the link's own href.
  */
-function clickReachesBb(anchor: HTMLAnchorElement): boolean {
+function clickReachesBb(target: Element): boolean {
   let reached = false;
   const bb = (event: Event): void => {
     reached = true;
     event.preventDefault();
   };
-  anchor.addEventListener("click", bb);
-  anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  anchor.removeEventListener("click", bb);
+  target.addEventListener("click", bb);
+  target.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  target.removeEventListener("click", bb);
   return reached;
 }
 
@@ -423,6 +423,31 @@ test("the new scanner answers clicks on a leftover button before and after its f
     { path: "src/a.ts", threadId },
     { path: "src/a.ts", threadId },
   ]);
+}, SLOW);
+
+test("before its first sweep the new scanner leaves a click on a leftover button whose link or code changed to bb", async () => {
+  const threadId = nextThread();
+  const container = message(
+    '<a href="file:///repo/old.ts">old.ts<svg></svg></a> <a href="file:///repo/same.ts">same.ts<svg></svg></a> <code>src/old.ts</code>',
+  );
+  const [changed, same] = Array.from(container.querySelectorAll<HTMLAnchorElement>("a"));
+  const code = codeNamed(container, "src/old.ts");
+  const first = startScanner(threadId, { validate: exists("/repo/old.ts", "/repo/same.ts", "src/old.ts") });
+  await waitFor(() => container.querySelectorAll(BUTTON).length === 3, "the three buttons");
+  first.abort();
+  // React kept the link and the code, and their buttons, but not what they say.
+  changed!.setAttribute("href", "file:///repo/new.ts");
+  code.firstChild!.textContent = "src/new.ts";
+  const reveals = listenReveals();
+
+  const second = startScanner(threadId);
+  assert.deepEqual(second.reports, [], "the first sweep has not run yet");
+  assert.equal(clickReachesBb(buttonOf(changed!)!), true, "changed link");
+  assert.equal(clickReachesBb(buttonOf(code)!), true, "changed code");
+  assert.deepEqual(reveals, []);
+  assert.equal(clickReachesBb(buttonOf(same!)!), false, "unchanged link");
+  assert.deepEqual(reveals, [{ path: "/repo/same.ts", threadId }]);
+  assert.deepEqual(second.opened, []);
 }, SLOW);
 
 test("answers that land while the new scanner's batch waits are still drawn", async () => {

@@ -520,6 +520,27 @@ test("a leftover button for another path is replaced when the current path exist
   assert.equal(code.querySelectorAll(BUTTON).length, 1);
 }, SLOW);
 
+test("a leftover button for another path goes on the first sweep when the current path is not yet known", async () => {
+  const threadId = nextThread();
+  const code = codeNamed(message("<code>src/old.ts</code>"), "src/old.ts");
+  const first = startScanner(threadId, { validate: exists("src/old.ts") });
+  await waitFor(() => buttonOf(code) !== null, "the first button");
+  first.abort();
+  code.firstChild!.textContent = "src/new.ts";
+
+  const second = startScanner(threadId, {
+    validate: async () => {
+      throw new Error("offline");
+    },
+  });
+  await firstSweep(second);
+  assert.equal(buttonOf(code), null);
+  await waitFor(() => second.validateCalls.length === 1, "the lookup for the new path");
+  assert.deepEqual(second.validateCalls[0], ["src/new.ts"]);
+  await delay(SETTLE_MS);
+  assert.equal(buttonOf(code), null);
+}, SLOW);
+
 test("a remount for another thread asks about every path and drops what that workspace lacks", async () => {
   const container = message("<code>src/a.ts</code> and <code>src/b.ts</code>");
   const codeA = codeNamed(container, "src/a.ts");

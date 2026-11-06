@@ -433,8 +433,10 @@ export function mountChatPathButtons(
         existing?.remove();
         continue;
       }
-      // Not asked yet: a button left by a previous scanner stays until the
-      // answer arrives, so a path that does exist does not blink.
+      // Not asked yet: a button left by a previous scanner for this path stays
+      // until the answer arrives, so a path that does exist does not blink.
+      // One for another path would reveal the wrong file.
+      if (existing !== null && existing.dataset[PATH_ATTR] !== path) existing.remove();
       pending.add(path);
     }
     if (pending.size > 0) scheduleFlush();

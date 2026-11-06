@@ -525,9 +525,9 @@ export function mountChatPathButtons(
    * click may call preventDefault(): doing it on pointerdown or mousedown
    * cancels the click that would otherwise follow.
    */
-  const fixedAnchorFrom = (target: EventTarget | null): HTMLElement | null => {
+  const fixedAnchorFrom = (target: EventTarget | null): HTMLAnchorElement | null => {
     if (target === null || !(target instanceof Element)) return null;
-    return target.closest<HTMLElement>(`a[${FIXED_ATTR}]`);
+    return target.closest<HTMLAnchorElement>(`a[${FIXED_ATTR}]`);
   };
 
   const onEarly = (event: Event): void => {
@@ -557,6 +557,9 @@ export function mountChatPathButtons(
     // A fix made for another thread is answered by that thread's scanner, or,
     // when that one has stopped, by bb until this scanner's sweep re-asks.
     if (anchor === null || inOtherPane(anchor) || anchor.dataset[THREAD_ATTR] !== threadId) return;
+    // A link that changed since its fix is bb's until the sweep re-asks.
+    const href = anchorTargetPath(anchor);
+    if (href === null || anchor.dataset[FIXED_KEY] !== anchorKey(textOf(anchor), href)) return;
     const absolutePath = anchor.dataset.fileExplorerFixedPath;
     const hostId = anchor.dataset.fileExplorerFixedHost;
     if (absolutePath === undefined || hostId === undefined) return;

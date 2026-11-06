@@ -611,6 +611,9 @@ test("a fixed link whose text or href changed loses the fix at once and is asked
 
   const answer = deferred<AnchorFix[]>();
   const second = startScanner(threadId, { resolveAnchors: () => answer.promise });
+  assert.equal(clickReachesBb(notes), true, "changed href, before the first sweep");
+  assert.equal(clickReachesBb(todo), true, "changed text, before the first sweep");
+  assert.deepEqual(second.opened, []);
   await firstSweep(second);
   assert.equal(notes.hasAttribute(FIXED), false);
   assert.equal(notes.dataset.fileExplorerFixedPath, undefined);
@@ -679,6 +682,8 @@ test("a fixed link whose href is no longer a file path loses the fix on the firs
   anchor.setAttribute("href", "https://example.com/notes.md");
 
   const second = startScanner(threadId);
+  assert.equal(clickReachesBb(anchor), true, "before the first sweep");
+  assert.deepEqual(second.opened, []);
   await firstSweep(second);
   assert.equal(anchor.hasAttribute(FIXED), false);
   assert.equal(anchor.dataset.fileExplorerFixedPath, undefined);

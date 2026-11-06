@@ -14,6 +14,11 @@
  * `packs/gws` and `and/or` are lexically identical, so guessing either misses
  * real paths or decorates prose. The candidates go to the server and only the
  * ones that resolve come back.
+ *
+ * Stopping a scanner leaves the document alone. Removing every button on
+ * abort made them blink whenever the scanner restarted; instead the buttons
+ * and link fixes stay, and the next scanner adopts them on its first sweep,
+ * dropping whatever no longer matches its own verdicts.
  */
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
@@ -24,6 +29,12 @@ const BUTTON_ATTR = "data-file-explorer-reveal";
 const PATH_ATTR = "fileExplorerRevealPath";
 /** Marks a chat link this module answers instead of bb. */
 const FIXED_ATTR = "data-file-explorer-fixed";
+/**
+ * The text and target a fix was made for. A later scanner compares it with
+ * the link as it is now, so a link that changed since does not keep a fix
+ * meant for another file.
+ */
+const FIXED_KEY = "fileExplorerFixedKey";
 
 // The app chrome uses the same inline elements as rendered Markdown. Restrict
 // mutation to a message container so a workspace folder named "Settings" can
@@ -152,8 +163,9 @@ function anchorKey(text: string, href: string): string {
 }
 
 /**
- * Shared across mounts of the same thread. A header re-render aborts the
- * effect and would otherwise send every path in the chat to the server again.
+ * Shared across mounts of the same thread. A remount would otherwise send
+ * every path in the chat to the server again, and the buttons a previous
+ * scanner left behind are kept or dropped by these verdicts.
  * Each entry expires on its own, so a file created later is asked again
  * without keeping a miss from the start of the session.
  */
@@ -211,8 +223,9 @@ export function mountChatPathButtons(
   const pendingAnchors = new Map<string, { text: string; href: string }>();
   let anchorTimer: number | null = null;
 
-  const applyFix = (anchor: HTMLAnchorElement, fix: AnchorFix): void => {
+  const applyFix = (anchor: HTMLAnchorElement, key: string, fix: AnchorFix): void => {
     anchor.setAttribute(FIXED_ATTR, "");
+    anchor.dataset[FIXED_KEY] = key;
     anchor.dataset.fileExplorerFixedPath = fix.absolutePath;
     anchor.dataset.fileExplorerFixedHost = fix.hostId;
     anchor.dataset.fileExplorerFixedDir = fix.isDirectory ? "1" : "";
@@ -222,6 +235,7 @@ export function mountChatPathButtons(
   const clearFix = (anchor: HTMLAnchorElement): void => {
     if (!anchor.hasAttribute(FIXED_ATTR)) return;
     anchor.removeAttribute(FIXED_ATTR);
+    delete anchor.dataset[FIXED_KEY];
     delete anchor.dataset.fileExplorerFixedPath;
     delete anchor.dataset.fileExplorerFixedHost;
     delete anchor.dataset.fileExplorerFixedDir;
@@ -229,7 +243,13 @@ export function mountChatPathButtons(
 
   const sweepAnchors = (): void => {
     expireLocal(anchorFixes, anchorCache.recall(threadId));
-    for (const anchor of chatQuery<HTMLAnchorElement>('a[href^="file:"]')) {
+    // Fixed links too: one whose href is no longer a file link would not match
+    // the first selector and would keep a fix a previous scanner applied.
+    const anchors = new Set([
+      ...chatQuery<HTMLAnchorElement>('a[href^="file:"]'),
+      ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
+    ]);
+    for (const anchor of anchors) {
       const href = anchorTargetPath(anchor);
       const text = textOf(anchor);
       if (href === null || text === "") {
@@ -237,13 +257,15 @@ export function mountChatPathButtons(
         continue;
       }
       const key = anchorKey(text, href);
+      // The link changed under a fix made for its old text or target.
+      if (anchor.dataset[FIXED_KEY] !== key) clearFix(anchor);
       const fix = anchorFixes.get(key);
       if (fix === undefined) {
         pendingAnchors.set(key, { text, href });
         continue;
       }
       if (fix === null) clearFix(anchor);
-      else applyFix(anchor, fix);
+      else applyFix(anchor, key, fix);
     }
     if (pendingAnchors.size > 0) scheduleAnchorFlush();
   };
@@ -261,10 +283,17 @@ export function mountChatPathButtons(
     if (batch.length === 0) return;
     for (const [key] of batch) pendingAnchors.delete(key);
     void after(anchorChain, threadId, async () => {
+      // Stopped while waiting its turn: the next scanner asks for itself.
+      if (signal.aborted) return;
       const fresh = anchorCache.recall(threadId);
       for (const [key, fix] of fresh) anchorFixes.set(key, fix);
       const still = batch.filter(([key]) => !anchorFixes.has(key));
-      if (still.length === 0) return;
+      if (still.length === 0) {
+        // Answered while this batch waited, perhaps by the request a previous
+        // scanner left in flight: apply them now, not on the next mutation.
+        queueSweep();
+        return;
+      }
       let fixes: AnchorFix[];
       try {
         fixes = await resolveAnchors(still.map(([, anchor]) => anchor));
@@ -325,7 +354,13 @@ export function mountChatPathButtons(
         ensureButton(code, path);
         continue;
       }
-      if (verdict === false) continue;
+      if (verdict === false) {
+        // A button a previous scanner drew, perhaps for another thread.
+        code.querySelector(`button[${BUTTON_ATTR}]`)?.remove();
+        continue;
+      }
+      // Not asked yet: a button left by a previous scanner stays until the
+      // answer arrives, so a path that does exist does not blink.
       pending.add(path);
     }
     if (pending.size > 0) scheduleFlush();
@@ -373,10 +408,17 @@ export function mountChatPathButtons(
     if (batch.length === 0) return;
     for (const path of batch) pending.delete(path);
     void after(pathChain, threadId, async () => {
+      // Stopped while waiting its turn: the next scanner asks for itself.
+      if (signal.aborted) return;
       const fresh = verdictCache.recall(threadId);
       for (const [path, exists] of fresh) known.set(path, exists);
       const still = batch.filter((path) => !known.has(path));
-      if (still.length === 0) return;
+      if (still.length === 0) {
+        // Answered while this batch waited, perhaps by the request a previous
+        // scanner left in flight: draw them now, not on the next mutation.
+        queueSweep();
+        return;
+      }
       let resolved: Set<string>;
       try {
         resolved = await validate(still);
@@ -498,6 +540,9 @@ export function mountChatPathButtons(
     if (relevant) queueSweep();
   });
   observer.observe(document.body, { childList: true, subtree: true });
+  // Stop working, but leave the buttons and link fixes where they are: the
+  // next scanner adopts them on its first sweep. Removing them here made every
+  // restart blink. The click listeners go with `signal`.
   signal.addEventListener(
     "abort",
     () => {
@@ -505,16 +550,6 @@ export function mountChatPathButtons(
       if (sweepTimer !== null) window.clearTimeout(sweepTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
       if (anchorTimer !== null) window.clearTimeout(anchorTimer);
-      for (const button of Array.from(
-        document.querySelectorAll(`button[${BUTTON_ATTR}]`),
-      )) {
-        button.remove();
-      }
-      for (const anchor of Array.from(
-        document.querySelectorAll<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
-      )) {
-        clearFix(anchor);
-      }
     },
     { once: true },
   );

@@ -511,7 +511,8 @@ test("a fixed link whose text or href changed loses the fix at once and is asked
   const first = startScanner(threadId, { resolveAnchors: fixes(NOTES_FIX, TODO_FIX) });
   await waitFor(() => notes.hasAttribute(FIXED) && todo.hasAttribute(FIXED), "both fixes");
   first.abort();
-  notes.setAttribute("href", "file:///wrong/elsewhere.md");
+  // bb's own preview links carry an absolute href rather than a file: URL.
+  notes.setAttribute("href", "/changed/notes.md");
   todo.firstChild!.textContent = "todo-2.md";
 
   const answer = deferred<AnchorFix[]>();
@@ -523,7 +524,34 @@ test("a fixed link whose text or href changed loses the fix at once and is asked
   assert.equal(todo.dataset.fileExplorerFixedKey, undefined);
   await waitFor(() => second.anchorCalls.length === 1, "the new keys asked");
   const asked = (second.anchorCalls[0] ?? []).map((anchor) => `${anchor.text} ${anchor.href}`).sort();
-  assert.deepEqual(asked, ["notes.md /wrong/elsewhere.md", "todo-2.md /wrong/todo.md"]);
+  assert.deepEqual(asked, ["notes.md /changed/notes.md", "todo-2.md /wrong/todo.md"]);
+
+  answer.resolve([
+    { ...NOTES_FIX, href: "/changed/notes.md", absolutePath: "/repo/changed/notes.md" },
+    { ...TODO_FIX, text: "todo-2.md", absolutePath: "/repo/docs/todo-2.md" },
+  ]);
+  await waitFor(
+    () => notes.hasAttribute(FIXED) && todo.hasAttribute(FIXED),
+    "the replacement fixes on both links",
+  );
+  assert.equal(notes.dataset.fileExplorerFixedPath, "/repo/changed/notes.md");
+  assert.equal(notes.dataset.fileExplorerFixedKey, "notes.md\n/changed/notes.md");
+  assert.equal(todo.dataset.fileExplorerFixedPath, "/repo/docs/todo-2.md");
+  assert.equal(todo.dataset.fileExplorerFixedKey, "todo-2.md\n/wrong/todo.md");
+}, SLOW);
+
+test("a link with an absolute file href is fixed like a file: link; a protocol-relative one is never asked", async () => {
+  const container = message(
+    '<a href="/wrong/notes.md">notes.md</a> <a href="//example.com/todo.md">todo.md</a>',
+  );
+  const notes = container.querySelector<HTMLAnchorElement>('a[href="/wrong/notes.md"]')!;
+  const remote = container.querySelector<HTMLAnchorElement>('a[href="//example.com/todo.md"]')!;
+  const scanner = startScanner(nextThread(), { resolveAnchors: fixes(NOTES_FIX) });
+  await waitFor(() => notes.hasAttribute(FIXED), "the fix on the absolute link");
+  assert.equal(notes.dataset.fileExplorerFixedPath, "/repo/docs/notes.md");
+  await delay(SETTLE_MS);
+  assert.deepEqual(scanner.anchorCalls, [[{ text: "notes.md", href: "/wrong/notes.md" }]]);
+  assert.equal(remote.hasAttribute(FIXED), false);
 }, SLOW);
 
 test("a fixed link whose key is cached as fine loses the fix on the first sweep", async () => {

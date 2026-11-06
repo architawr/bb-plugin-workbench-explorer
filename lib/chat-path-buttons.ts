@@ -243,10 +243,13 @@ export function mountChatPathButtons(
 
   const sweepAnchors = (): void => {
     expireLocal(anchorFixes, anchorCache.recall(threadId));
-    // Fixed links too: one whose href is no longer a file link would not match
-    // the first selector and would keep a fix a previous scanner applied.
+    // Both href forms `filePathFromHref` accepts (bb's preview links are often
+    // absolute), so a link re-asked after a change still receives its answer.
+    // Fixed links too: one whose href is no longer a file link would match
+    // neither selector and would keep a fix a previous scanner applied.
     const anchors = new Set([
       ...chatQuery<HTMLAnchorElement>('a[href^="file:"]'),
+      ...chatQuery<HTMLAnchorElement>('a[href^="/"]'),
       ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
     ]);
     for (const anchor of anchors) {

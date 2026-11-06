@@ -36,13 +36,12 @@ const GLOBAL_NAMES = [
 type GlobalName = (typeof GLOBAL_NAMES)[number];
 
 export interface DomEnvironment {
-  readonly window: Window;
   /** Put back every global this install replaced and close the window. */
   restore(): Promise<void>;
 }
 
-export function installDom(url = "http://localhost/"): DomEnvironment {
-  const window = new Window({ url });
+export function installDom(): DomEnvironment {
+  const window = new Window({ url: "http://localhost/" });
   const source = window as unknown as Record<GlobalName, unknown>;
   const saved = new Map<GlobalName, PropertyDescriptor | undefined>();
   for (const name of GLOBAL_NAMES) {
@@ -51,12 +50,8 @@ export function installDom(url = "http://localhost/"): DomEnvironment {
     if (name === "getComputedStyle") value = window.getComputedStyle.bind(window);
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value });
   }
-  let restored = false;
   return {
-    window,
     async restore() {
-      if (restored) return;
-      restored = true;
       for (const name of GLOBAL_NAMES) {
         const previous = saved.get(name);
         if (previous) Object.defineProperty(globalThis, name, previous);
@@ -68,16 +63,12 @@ export function installDom(url = "http://localhost/"): DomEnvironment {
   };
 }
 
-/** Poll `condition` until it holds, failing with `message` after `timeoutMs`. */
-export async function waitFor(
-  condition: () => boolean,
-  message: string,
-  timeoutMs = 4000,
-): Promise<void> {
+/** Poll `condition` until it holds, failing with `message` after 4 s. */
+export async function waitFor(condition: () => boolean, message: string): Promise<void> {
   const started = Date.now();
   while (!condition()) {
-    if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for ${message}`);
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    if (Date.now() - started > 4000) throw new Error(`timed out waiting for ${message}`);
+    await delay(10);
   }
 }
 

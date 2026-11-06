@@ -80,9 +80,7 @@ export function ChatPathBridge({
       },
       headerRef.current,
     );
-    return () => {
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [mount, threadId]);
 
   return <span ref={headerRef} hidden />;

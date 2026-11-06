@@ -6,13 +6,13 @@
  * in `afterAll`. The other test files keep seeing the globals they had,
  * including no `window` at all.
  */
-import type { UnderlyingSource } from "node:stream/web";
 import { Window } from "happy-dom";
 
-// happy-dom's declarations name `UnderlyingDefaultSource`, which newer
-// @types/node exports and the version this repository pins does not. Declare
-// it as the general source type it narrows, so the helper typechecks.
-declare module "node:stream/web" {
+// happy-dom's declarations name `UnderlyingDefaultSource` from
+// `node:stream/web`, which newer @types/node exports and the version this
+// repository pins does not. Declare it as the general source type it narrows,
+// so the helper typechecks.
+declare module "stream/web" {
   interface UnderlyingDefaultSource<R = any> extends UnderlyingSource<R> {}
 }
 

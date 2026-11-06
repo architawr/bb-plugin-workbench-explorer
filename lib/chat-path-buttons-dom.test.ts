@@ -569,6 +569,27 @@ test("a leftover button in a link's code moves onto the link when bb gives the l
   assert.deepEqual(second.validateCalls, []);
 }, SLOW);
 
+test("a link that gains and then loses bb's preview glyph keeps one working button", async () => {
+  const threadId = nextThread();
+  const container = message('<a href="file:///repo/a.ts"><code>/repo/a.ts</code></a>');
+  const anchor = container.querySelector<HTMLAnchorElement>("a")!;
+  const code = codeNamed(container, "/repo/a.ts");
+  const scanner = startScanner(threadId, { validate: exists("/repo/a.ts") });
+  await waitFor(() => buttonOf(code) !== null, "the button on the code");
+  const button = buttonOf(code)!;
+  anchor.insertAdjacentHTML("beforeend", "<svg></svg>");
+  const glyph = anchor.lastElementChild!;
+  await waitFor(() => button.parentElement === anchor, "the button on the link");
+  glyph.remove();
+  await waitFor(() => button.parentElement === code, "the same button back on the code");
+  await delay(SETTLE_MS);
+  assert.equal(container.querySelectorAll(BUTTON).length, 1);
+  const reveals = listenReveals();
+  assert.equal(clickReachesBb(button), false);
+  assert.deepEqual(reveals, [{ path: "/repo/a.ts", threadId }]);
+  assert.equal(scanner.validateCalls.length, 1);
+}, SLOW);
+
 test("a leftover button for another path goes on the first sweep when the current path is not yet known", async () => {
   const threadId = nextThread();
   const code = codeNamed(message("<code>src/old.ts</code>"), "src/old.ts");

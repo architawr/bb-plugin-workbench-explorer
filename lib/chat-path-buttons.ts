@@ -212,6 +212,16 @@ function buttonPathFor(code: Element): string | null | undefined {
   return candidateOf(code);
 }
 
+/**
+ * The button `code` holds, or, for a code in a link, the one the link took
+ * while it had bb's preview glyph: the code carries that path again.
+ */
+function carriedButton(code: Element): HTMLElement | null {
+  const own = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
+  if (own !== null || code instanceof HTMLAnchorElement) return own;
+  return code.closest("a")?.querySelector<HTMLElement>(`:scope > button[${BUTTON_ATTR}]`) ?? null;
+}
+
 function anchorKey(text: string, href: string): string {
   return `${text}\n${href}`;
 }
@@ -284,12 +294,12 @@ export function mountChatPathButtons(
   let sweepQueued = false;
 
   const ensureButton = (code: Element, path: string): void => {
-    const existing = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
+    const existing = carriedButton(code);
     if (existing !== null) {
       if (existing.dataset[PATH_ATTR] === path) {
         existing.dataset[THREAD_ATTR] = threadId;
-        // Drawn in the code inside a link that has since become a preview
-        // link: the link carries it now, and its clicks are checked there.
+        // Drawn on the other carrier of a link that gained or lost its preview
+        // glyph since: move it here, where its clicks are checked.
         if (existing.parentElement !== code) code.appendChild(existing);
         return;
       }
@@ -428,7 +438,7 @@ export function mountChatPathButtons(
       const path = buttonPathFor(code);
       if (path === undefined) continue;
       codes += 1;
-      const existing = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
+      const existing = carriedButton(code);
       if (path === null) {
         existing?.remove();
         continue;

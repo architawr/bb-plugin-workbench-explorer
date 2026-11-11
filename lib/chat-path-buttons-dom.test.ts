@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterAll, afterEach, beforeAll, test } from "bun:test";
 import type { AnchorFix } from "../shared";
 import {
+  chatPathButtonsContentScript,
   mountChatPathButtons,
   type AnchorResolver,
   type PathValidator,
@@ -893,4 +894,80 @@ test("a pane's new scanner reconciles what another pane's scanner adopted there 
   await delay(SETTLE_MS);
   assert.equal(buttonOf(code), null);
   assert.deepEqual(c.validateCalls, [["src/a.ts"]]);
+}, SLOW);
+
+// --- Whose click it is --------------------------------------------------------
+
+test("with no pane to tell them apart, a click on another thread's button is answered by that thread", async () => {
+  const code = codeNamed(message("<code>src/b.ts</code>"), "src/b.ts");
+  const threadA = nextThread();
+  const threadB = nextThread();
+  // Thread A's click listener is added first, so it sees every click first.
+  startScanner(threadA, { validate: exists() });
+  startScanner(threadB, { validate: exists("src/b.ts") });
+  await waitFor(() => buttonOf(code)?.dataset.fileExplorerThread === threadB, "thread B's button");
+  const reveals = listenReveals();
+  assert.equal(clickReachesBb(buttonOf(code)!), false);
+  assert.deepEqual(reveals, [{ path: "src/b.ts", threadId: threadB }]);
+}, SLOW);
+
+test("a button another thread's stopped scanner left is not revealed in this thread until this scanner adopts it", async () => {
+  const code = codeNamed(message("<code>src/b.ts</code>"), "src/b.ts");
+  const threadA = nextThread();
+  const answerA = deferred<Set<string>>();
+  const a = startScanner(threadA, { validate: () => answerA.promise });
+  const b = startScanner(nextThread(), { validate: exists("src/b.ts") });
+  await waitFor(() => buttonOf(code) !== null && a.validateCalls.length === 1, "thread B's button and A's question");
+  // Thread A does not know the path yet, so the button stays as thread B left it.
+  b.abort();
+  await delay(SETTLE_MS);
+  const reveals = listenReveals();
+  assert.equal(clickReachesBb(buttonOf(code)!), true);
+  assert.deepEqual(reveals, []);
+
+  answerA.resolve(new Set(["src/b.ts"]));
+  await waitFor(() => buttonOf(code)?.dataset.fileExplorerThread === threadA, "thread A's adoption");
+  assert.equal(clickReachesBb(buttonOf(code)!), false);
+  assert.deepEqual(reveals, [{ path: "src/b.ts", threadId: threadA }]);
+}, SLOW);
+
+// --- Deactivation ---------------------------------------------------------------
+
+test("when bb deactivates the plugin, its content script removes every button and link fix and stops the scanners", async () => {
+  const threadId = nextThread();
+  const container = message(`<code>src/a.ts</code>${NOTES_HTML}`);
+  const code = codeNamed(container, "src/a.ts");
+  const anchor = notesLink(container);
+  const scanner = startScanner(threadId, {
+    validate: exists("src/a.ts", "src/b.ts"),
+    resolveAnchors: fixes(NOTES_FIX),
+  });
+  await waitFor(() => buttonOf(code) !== null && anchor.hasAttribute(FIXED), "the button and the fix");
+  const asked = scanner.validateCalls.length;
+
+  const generation = new AbortController();
+  const dispose = await chatPathButtonsContentScript.mount({
+    pluginId: "workbench-explorer",
+    generation: 1,
+    signal: generation.signal,
+  });
+  generation.abort();
+  await dispose?.();
+
+  assert.equal(document.querySelectorAll(BUTTON).length, 0);
+  assert.equal(anchor.hasAttribute(FIXED), false);
+  assert.equal(anchor.dataset.fileExplorerFixedPath, undefined);
+  assert.equal(anchor.dataset.fileExplorerThread, undefined);
+  assert.equal(clickReachesBb(anchor), true);
+  // Stopped, not just cleaned: a new path in the chat draws nothing and asks nothing.
+  container.insertAdjacentHTML("beforeend", "<code>src/b.ts</code>");
+  await delay(SETTLE_MS);
+  assert.equal(document.querySelectorAll(BUTTON).length, 0);
+  assert.equal(scanner.validateCalls.length, asked);
+  // The slot's own cleanup still runs afterwards, and changes nothing.
+  scanner.abort();
+
+  // Enabled again: the next scanner draws as usual.
+  startScanner(threadId);
+  await waitFor(() => buttonOf(code) !== null && anchor.hasAttribute(FIXED), "the new scanner's button and fix");
 }, SLOW);

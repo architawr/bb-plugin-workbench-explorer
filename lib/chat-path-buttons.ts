@@ -28,7 +28,12 @@
  * made for, and a scanner leaves alone what another running scanner made:
  * otherwise each would drop the other's buttons by its own verdicts, and the
  * two would redraw them forever.
+ *
+ * Only bb deactivating the plugin takes them out: its content script's
+ * disposer stops every scanner and removes what they made, so a disabled
+ * plugin leaves no inert buttons in the chat.
  */
+import type { PluginContentScriptRegistration } from "@get-bb/plugin-sdk/app";
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
 import { createTimedCache, PATH_CACHE_TTL_MS } from "./timed-cache";
@@ -60,6 +65,8 @@ interface RunningScanner {
   readonly header: Element | null;
   /** Queue a sweep. */
   readonly wake: () => void;
+  /** Stop as the caller's abort would. */
+  readonly stop: () => void;
 }
 
 /** Two panes may show one thread, so a thread can have two scanners. */
@@ -226,6 +233,42 @@ function anchorKey(text: string, href: string): string {
   return `${text}\n${href}`;
 }
 
+function clearFix(anchor: HTMLAnchorElement): void {
+  if (!anchor.hasAttribute(FIXED_ATTR)) return;
+  anchor.removeAttribute(FIXED_ATTR);
+  delete anchor.dataset[FIXED_KEY];
+  delete anchor.dataset[THREAD_ATTR];
+  delete anchor.dataset.fileExplorerFixedPath;
+  delete anchor.dataset.fileExplorerFixedHost;
+  delete anchor.dataset.fileExplorerFixedDir;
+}
+
+/**
+ * Stop every scanner and take every reveal button and link fix out of the
+ * document. A scanner that stops leaves them for the next one; this is for
+ * when no next one is coming.
+ */
+export function removeChatPathButtons(): void {
+  for (const scanner of Array.from(scanners)) scanner.stop();
+  for (const button of Array.from(document.querySelectorAll(`button[${BUTTON_ATTR}]`))) {
+    button.remove();
+  }
+  for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>(`a[${FIXED_ATTR}]`))) {
+    clearFix(anchor);
+  }
+}
+
+/**
+ * bb disposes a content script exactly once when it disables, removes or
+ * reloads the plugin, or closes the window, and never when a thread header
+ * remounts. The scanners run from that header, so this is the one signal
+ * that their buttons have no next scanner to adopt them.
+ */
+export const chatPathButtonsContentScript = {
+  id: "chat-path-buttons",
+  mount: () => removeChatPathButtons,
+} satisfies PluginContentScriptRegistration;
+
 /**
  * Shared across mounts of the same thread. A remount would otherwise send
  * every path in the chat to the server again, and the buttons a previous
@@ -257,7 +300,7 @@ function expireLocal<T>(local: Map<string, T>, fresh: Map<string, T>): void {
 }
 
 export function mountChatPathButtons(
-  signal: AbortSignal,
+  callerSignal: AbortSignal,
   threadId: string,
   validate: PathValidator,
   resolveAnchors: AnchorResolver,
@@ -266,6 +309,12 @@ export function mountChatPathButtons(
   /** An element in this thread's header, which finds the thread's pane. */
   header: Element | null = null,
 ): void {
+  // Aborted by the caller, or by `removeChatPathButtons` when bb deactivates
+  // the plugin.
+  const stopper = new AbortController();
+  const signal = stopper.signal;
+  if (callerSignal.aborted) stopper.abort();
+  else callerSignal.addEventListener("abort", () => stopper.abort(), { once: true, signal });
   /** In a pane whose header is another scanner's: that pane's thread decides it. */
   const inOtherPane = (element: Element): boolean => {
     const pane = paneOf(element);
@@ -324,16 +373,6 @@ export function mountChatPathButtons(
     anchor.dataset.fileExplorerFixedHost = fix.hostId;
     anchor.dataset.fileExplorerFixedDir = fix.isDirectory ? "1" : "";
     anchor.title = fix.absolutePath;
-  };
-
-  const clearFix = (anchor: HTMLAnchorElement): void => {
-    if (!anchor.hasAttribute(FIXED_ATTR)) return;
-    anchor.removeAttribute(FIXED_ATTR);
-    delete anchor.dataset[FIXED_KEY];
-    delete anchor.dataset[THREAD_ATTR];
-    delete anchor.dataset.fileExplorerFixedPath;
-    delete anchor.dataset.fileExplorerFixedHost;
-    delete anchor.dataset.fileExplorerFixedDir;
   };
 
   const sweepAnchors = (): void => {
@@ -564,7 +603,11 @@ export function mountChatPathButtons(
       onFixedAnchor(event);
       return;
     }
-    if (inOtherPane(button)) return;
+    // Drawn for another thread, whose workspace said the path exists: that
+    // thread's scanner answers, or, when it has stopped, bb does until this
+    // scanner's sweep adopts the button. Pane ownership alone misses both when
+    // no pane is known or the other pane's scanner is between mounts.
+    if (inOtherPane(button) || button.dataset[THREAD_ATTR] !== threadId) return;
     event.stopImmediatePropagation();
     event.stopPropagation();
     if (event.type !== "click" && event.type !== "auxclick") return;
@@ -657,7 +700,7 @@ export function mountChatPathButtons(
     characterData: true,
     attributeFilter: ["href"],
   });
-  const self: RunningScanner = { threadId, header, wake: queueSweep };
+  const self: RunningScanner = { threadId, header, wake: queueSweep, stop: () => stopper.abort() };
   scanners.add(self);
   // Stop working, but leave the buttons and link fixes where they are: the
   // next scanner adopts them on its first sweep. Removing them here made every

@@ -14,7 +14,26 @@
  * `packs/gws` and `and/or` are lexically identical, so guessing either misses
  * real paths or decorates prose. The candidates go to the server and only the
  * ones that resolve come back.
+ *
+ * Stopping a scanner leaves the document alone. Removing every button on
+ * abort made them blink whenever the scanner restarted; instead the buttons
+ * and link fixes stay, and the next scanner adopts them on its first sweep,
+ * dropping whatever no longer matches its own verdicts.
+ *
+ * A split layout runs one scanner per visible thread over the same document.
+ * bb wraps each pane, its thread header and its messages, in one element, so
+ * a scanner leaves the messages of a pane whose header is another scanner's
+ * to that scanner: only the message's own thread knows whether its links
+ * work. Where no pane says, each button and fix records the thread it was
+ * made for, and a scanner leaves alone what another running scanner made:
+ * otherwise each would drop the other's buttons by its own verdicts, and the
+ * two would redraw them forever.
+ *
+ * Only bb deactivating the plugin takes them out: its content script's
+ * disposer stops every scanner and removes what they made, so a disabled
+ * plugin leaves no inert buttons in the chat.
  */
+import type { PluginContentScriptRegistration } from "@get-bb/plugin-sdk/app";
 import { requestReveal } from "./reveal-bus";
 import { writeStoredOpen } from "./rail-state";
 import { createTimedCache, PATH_CACHE_TTL_MS } from "./timed-cache";
@@ -24,6 +43,41 @@ const BUTTON_ATTR = "data-file-explorer-reveal";
 const PATH_ATTR = "fileExplorerRevealPath";
 /** Marks a chat link this module answers instead of bb. */
 const FIXED_ATTR = "data-file-explorer-fixed";
+/**
+ * The text and target a fix was made for. A later scanner compares it with
+ * the link as it is now, so a link that changed since does not keep a fix
+ * meant for another file.
+ */
+const FIXED_KEY = "fileExplorerFixedKey";
+/** The thread a button was drawn, or a link fixed, for. */
+const THREAD_ATTR = "fileExplorerThread";
+
+/** bb's element around one pane of a split layout, header and messages alike. */
+const PANE_ATTR = "data-split-pane-id";
+
+function paneOf(element: Element | null): string | null {
+  return element?.closest(`[${PANE_ATTR}]`)?.getAttribute(PANE_ATTR) ?? null;
+}
+
+interface RunningScanner {
+  readonly threadId: string;
+  /** Where the scanner's thread header sits, when known. */
+  readonly header: Element | null;
+  /** Queue a sweep. */
+  readonly wake: () => void;
+  /** Stop as the caller's abort would. */
+  readonly stop: () => void;
+}
+
+/** Two panes may show one thread, so a thread can have two scanners. */
+const scanners = new Set<RunningScanner>();
+
+function isRunning(threadId: string): boolean {
+  for (const scanner of scanners) {
+    if (scanner.threadId === threadId) return true;
+  }
+  return false;
+}
 
 // The app chrome uses the same inline elements as rendered Markdown. Restrict
 // mutation to a message container so a workspace folder named "Settings" can
@@ -33,13 +87,13 @@ const FIXED_ATTR = "data-file-explorer-fixed";
 // ordinary text or a `file:` link as well, but must never receive a reveal button.
 const CHAT_MESSAGE_SELECTOR = ".group\\/message";
 
-/** Nodes of `selector` that sit inside a rendered message, not the whole document. */
-function chatQuery<T extends Element>(selector: string): T[] {
+/** Nodes of `selector` inside the rendered messages `keep` accepts, not the whole document. */
+function chatQuery<T extends Element>(selector: string, keep: (message: Element) => boolean): T[] {
   const found: T[] = [];
   const messages = document.querySelectorAll(CHAT_MESSAGE_SELECTOR);
   for (let i = 0; i < messages.length; i += 1) {
     const message = messages[i];
-    if (message === undefined) continue;
+    if (message === undefined || !keep(message)) continue;
     const nodes = message.querySelectorAll(selector);
     for (let j = 0; j < nodes.length; j += 1) {
       const node = nodes[j];
@@ -89,11 +143,12 @@ function candidateOf(code: Element): string | null {
   return BARE_NAME_RE.test(text) ? text : null;
 }
 
-function makeButton(path: string): HTMLButtonElement {
+function makeButton(path: string, threadId: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.setAttribute(BUTTON_ATTR, "");
   button.dataset[PATH_ATTR] = path;
+  button.dataset[THREAD_ATTR] = threadId;
   button.title = `Reveal in the file explorer: ${path}`;
   button.setAttribute("aria-label", `Reveal in the file explorer: ${path}`);
   button.innerHTML = ICON_SVG;
@@ -147,13 +202,77 @@ function hasNativePreviewGlyph(anchor: HTMLAnchorElement): boolean {
   return next !== null && (next.matches("svg, img") || next.querySelector("svg, img") !== null);
 }
 
+/**
+ * The path a button in `code` stands for: a link with bb's preview glyph
+ * names its file href, anything else its own text; null when that is not a
+ * path. Undefined when the code or link inside it, or the preview link
+ * around it, carries the button instead, so a path gets one button, not two.
+ */
+function buttonPathFor(code: Element): string | null | undefined {
+  const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
+    ? anchorTargetPath(code)
+    : null;
+  if (previewPath !== null) return previewPath;
+  if (code.querySelector("code, a") !== null) return undefined;
+  const link = code.closest("a");
+  if (!(code instanceof HTMLAnchorElement) && link !== null && hasNativePreviewGlyph(link)) return undefined;
+  return candidateOf(code);
+}
+
+/**
+ * The button `code` holds, or, for a code in a link, the one the link took
+ * while it had bb's preview glyph: the code carries that path again.
+ */
+function carriedButton(code: Element): HTMLElement | null {
+  const own = code.querySelector<HTMLElement>(`button[${BUTTON_ATTR}]`);
+  if (own !== null || code instanceof HTMLAnchorElement) return own;
+  return code.closest("a")?.querySelector<HTMLElement>(`:scope > button[${BUTTON_ATTR}]`) ?? null;
+}
+
 function anchorKey(text: string, href: string): string {
   return `${text}\n${href}`;
 }
 
+function clearFix(anchor: HTMLAnchorElement): void {
+  if (!anchor.hasAttribute(FIXED_ATTR)) return;
+  anchor.removeAttribute(FIXED_ATTR);
+  delete anchor.dataset[FIXED_KEY];
+  delete anchor.dataset[THREAD_ATTR];
+  delete anchor.dataset.fileExplorerFixedPath;
+  delete anchor.dataset.fileExplorerFixedHost;
+  delete anchor.dataset.fileExplorerFixedDir;
+}
+
 /**
- * Shared across mounts of the same thread. A header re-render aborts the
- * effect and would otherwise send every path in the chat to the server again.
+ * Stop every scanner and take every reveal button and link fix out of the
+ * document. A scanner that stops leaves them for the next one; this is for
+ * when no next one is coming.
+ */
+export function removeChatPathButtons(): void {
+  for (const scanner of Array.from(scanners)) scanner.stop();
+  for (const button of Array.from(document.querySelectorAll(`button[${BUTTON_ATTR}]`))) {
+    button.remove();
+  }
+  for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>(`a[${FIXED_ATTR}]`))) {
+    clearFix(anchor);
+  }
+}
+
+/**
+ * bb disposes a content script exactly once when it disables, removes or
+ * reloads the plugin, or closes the window, and never when a thread header
+ * remounts. The scanners run from that header, so this is the one signal
+ * that their buttons have no next scanner to adopt them.
+ */
+export const chatPathButtonsContentScript = {
+  id: "chat-path-buttons",
+  mount: () => removeChatPathButtons,
+} satisfies PluginContentScriptRegistration;
+
+/**
+ * Shared across mounts of the same thread. A remount would otherwise send
+ * every path in the chat to the server again, and the buttons a previous
+ * scanner left behind are kept or dropped by these verdicts.
  * Each entry expires on its own, so a file created later is asked again
  * without keeping a miss from the start of the session.
  */
@@ -181,13 +300,42 @@ function expireLocal<T>(local: Map<string, T>, fresh: Map<string, T>): void {
 }
 
 export function mountChatPathButtons(
-  signal: AbortSignal,
+  callerSignal: AbortSignal,
   threadId: string,
   validate: PathValidator,
   resolveAnchors: AnchorResolver,
   openFixed: FixedOpener,
   report: Reporter = () => undefined,
+  /** An element in this thread's header, which finds the thread's pane. */
+  header: Element | null = null,
 ): void {
+  // Aborted by the caller, or by `removeChatPathButtons` when bb deactivates
+  // the plugin.
+  const stopper = new AbortController();
+  const signal = stopper.signal;
+  if (callerSignal.aborted) stopper.abort();
+  else callerSignal.addEventListener("abort", () => stopper.abort(), { once: true, signal });
+  /** In a pane whose header is another scanner's: that pane's thread decides it. */
+  const inOtherPane = (element: Element): boolean => {
+    const pane = paneOf(element);
+    if (pane === null || pane === paneOf(header)) return false;
+    for (const scanner of scanners) {
+      if (paneOf(scanner.header) === pane) return true;
+    }
+    return false;
+  };
+  const ownMessage = (message: Element): boolean => !inOtherPane(message);
+  /**
+   * Made for another thread whose scanner still runs, so its verdicts decide
+   * it, unless it is in this thread's own pane.
+   */
+  const ownedElsewhere = (element: HTMLElement): boolean => {
+    const pane = paneOf(header);
+    if (pane !== null && paneOf(element) === pane) return false;
+    const owner = element.dataset[THREAD_ATTR];
+    return owner !== undefined && owner !== threadId && isRunning(owner);
+  };
+
   /** path → exists in the workspace. Absent means "not asked yet". */
   const known = verdictCache.recall(threadId);
   const pending = new Set<string>();
@@ -195,12 +343,18 @@ export function mountChatPathButtons(
   let sweepQueued = false;
 
   const ensureButton = (code: Element, path: string): void => {
-    const existing = code.querySelector(`button[${BUTTON_ATTR}]`);
+    const existing = carriedButton(code);
     if (existing !== null) {
-      if ((existing as HTMLElement).dataset[PATH_ATTR] === path) return;
+      if (existing.dataset[PATH_ATTR] === path) {
+        existing.dataset[THREAD_ATTR] = threadId;
+        // Drawn on the other carrier of a link that gained or lost its preview
+        // glyph since: move it here, where its clicks are checked.
+        if (existing.parentElement !== code) code.appendChild(existing);
+        return;
+      }
       existing.remove();
     }
-    code.appendChild(makeButton(path));
+    code.appendChild(makeButton(path, threadId));
   };
 
   /**
@@ -211,25 +365,29 @@ export function mountChatPathButtons(
   const pendingAnchors = new Map<string, { text: string; href: string }>();
   let anchorTimer: number | null = null;
 
-  const applyFix = (anchor: HTMLAnchorElement, fix: AnchorFix): void => {
+  const applyFix = (anchor: HTMLAnchorElement, key: string, fix: AnchorFix): void => {
     anchor.setAttribute(FIXED_ATTR, "");
+    anchor.dataset[FIXED_KEY] = key;
+    anchor.dataset[THREAD_ATTR] = threadId;
     anchor.dataset.fileExplorerFixedPath = fix.absolutePath;
     anchor.dataset.fileExplorerFixedHost = fix.hostId;
     anchor.dataset.fileExplorerFixedDir = fix.isDirectory ? "1" : "";
     anchor.title = fix.absolutePath;
   };
 
-  const clearFix = (anchor: HTMLAnchorElement): void => {
-    if (!anchor.hasAttribute(FIXED_ATTR)) return;
-    anchor.removeAttribute(FIXED_ATTR);
-    delete anchor.dataset.fileExplorerFixedPath;
-    delete anchor.dataset.fileExplorerFixedHost;
-    delete anchor.dataset.fileExplorerFixedDir;
-  };
-
   const sweepAnchors = (): void => {
     expireLocal(anchorFixes, anchorCache.recall(threadId));
-    for (const anchor of chatQuery<HTMLAnchorElement>('a[href^="file:"]')) {
+    // Both href forms `filePathFromHref` accepts (bb's preview links are often
+    // absolute), so a link re-asked after a change still receives its answer.
+    // Fixed links too: one whose href is no longer a file link would match
+    // neither selector and would keep a fix a previous scanner applied.
+    const anchors = new Set([
+      ...chatQuery<HTMLAnchorElement>('a[href^="file:"]', ownMessage),
+      ...chatQuery<HTMLAnchorElement>('a[href^="/"]', ownMessage),
+      ...chatQuery<HTMLAnchorElement>(`a[${FIXED_ATTR}]`, ownMessage),
+    ]);
+    for (const anchor of anchors) {
+      if (anchor.hasAttribute(FIXED_ATTR) && ownedElsewhere(anchor)) continue;
       const href = anchorTargetPath(anchor);
       const text = textOf(anchor);
       if (href === null || text === "") {
@@ -237,13 +395,18 @@ export function mountChatPathButtons(
         continue;
       }
       const key = anchorKey(text, href);
+      // The link changed under a fix made for its old text or target, or the
+      // fix was made for another thread, whose workspace may differ.
+      if (anchor.dataset[FIXED_KEY] !== key || anchor.dataset[THREAD_ATTR] !== threadId) {
+        clearFix(anchor);
+      }
       const fix = anchorFixes.get(key);
       if (fix === undefined) {
         pendingAnchors.set(key, { text, href });
         continue;
       }
       if (fix === null) clearFix(anchor);
-      else applyFix(anchor, fix);
+      else applyFix(anchor, key, fix);
     }
     if (pendingAnchors.size > 0) scheduleAnchorFlush();
   };
@@ -261,10 +424,17 @@ export function mountChatPathButtons(
     if (batch.length === 0) return;
     for (const [key] of batch) pendingAnchors.delete(key);
     void after(anchorChain, threadId, async () => {
+      // Stopped while waiting its turn: the next scanner asks for itself.
+      if (signal.aborted) return;
       const fresh = anchorCache.recall(threadId);
       for (const [key, fix] of fresh) anchorFixes.set(key, fix);
       const still = batch.filter(([key]) => !anchorFixes.has(key));
-      if (still.length === 0) return;
+      if (still.length === 0) {
+        // Answered while this batch waited, perhaps by the request a previous
+        // scanner left in flight: apply them now, not on the next mutation.
+        queueSweep();
+        return;
+      }
       let fixes: AnchorFix[];
       try {
         fixes = await resolveAnchors(still.map(([, anchor]) => anchor));
@@ -303,29 +473,32 @@ export function mountChatPathButtons(
     // gives them its own "open" glyph, which is a different action from
     // revealing the file in the tree.
     sweepAnchors();
-    for (const code of chatQuery<Element>("code, a")) {
-      // A `<code>` inside an `<a>` matches twice; let the inner one win so the
-      // path gets one button, not two.
-      const previewPath = code instanceof HTMLAnchorElement && hasNativePreviewGlyph(code)
-        ? anchorTargetPath(code)
-        : null;
-      if (previewPath === null && code.querySelector("code, a") !== null) continue;
-      if (!(code instanceof HTMLAnchorElement) && code.closest("a") !== null &&
-        hasNativePreviewGlyph(code.closest("a") as HTMLAnchorElement)) continue;
+    for (const code of chatQuery<Element>("code, a", ownMessage)) {
+      const path = buttonPathFor(code);
+      if (path === undefined) continue;
       codes += 1;
-      const path = previewPath ?? candidateOf(code);
+      const existing = carriedButton(code);
       if (path === null) {
-        code.querySelector(`button[${BUTTON_ATTR}]`)?.remove();
+        existing?.remove();
         continue;
       }
       candidates += 1;
+      if (existing !== null && ownedElsewhere(existing)) continue;
       const verdict = known.get(path);
       if (verdict === true) {
         wanted += 1;
         ensureButton(code, path);
         continue;
       }
-      if (verdict === false) continue;
+      if (verdict === false) {
+        // A button a stopped scanner drew, perhaps for another thread.
+        existing?.remove();
+        continue;
+      }
+      // Not asked yet: a button left by a previous scanner for this path stays
+      // until the answer arrives, so a path that does exist does not blink.
+      // One for another path would reveal the wrong file.
+      if (existing !== null && existing.dataset[PATH_ATTR] !== path) existing.remove();
       pending.add(path);
     }
     if (pending.size > 0) scheduleFlush();
@@ -373,10 +546,17 @@ export function mountChatPathButtons(
     if (batch.length === 0) return;
     for (const path of batch) pending.delete(path);
     void after(pathChain, threadId, async () => {
+      // Stopped while waiting its turn: the next scanner asks for itself.
+      if (signal.aborted) return;
       const fresh = verdictCache.recall(threadId);
       for (const [path, exists] of fresh) known.set(path, exists);
       const still = batch.filter((path) => !known.has(path));
-      if (still.length === 0) return;
+      if (still.length === 0) {
+        // Answered while this batch waited, perhaps by the request a previous
+        // scanner left in flight: draw them now, not on the next mutation.
+        queueSweep();
+        return;
+      }
       let resolved: Set<string>;
       try {
         resolved = await validate(still);
@@ -398,7 +578,12 @@ export function mountChatPathButtons(
 
   const buttonFrom = (target: EventTarget | null): HTMLElement | null => {
     if (target === null || !(target instanceof Element)) return null;
-    return target.closest<HTMLElement>(`button[${BUTTON_ATTR}]`);
+    const button = target.closest<HTMLElement>(`button[${BUTTON_ATTR}]`);
+    const container = button?.parentElement ?? null;
+    if (button === null || container === null) return null;
+    // One drawn before its link or code changed would reveal the old path: the
+    // click is the link's until the sweep redraws the button.
+    return buttonPathFor(container) === button.dataset[PATH_ATTR] ? button : null;
   };
 
   /**
@@ -407,9 +592,9 @@ export function mountChatPathButtons(
    * click may call preventDefault(): doing it on pointerdown or mousedown
    * cancels the click that would otherwise follow.
    */
-  const fixedAnchorFrom = (target: EventTarget | null): HTMLElement | null => {
+  const fixedAnchorFrom = (target: EventTarget | null): HTMLAnchorElement | null => {
     if (target === null || !(target instanceof Element)) return null;
-    return target.closest<HTMLElement>(`a[${FIXED_ATTR}]`);
+    return target.closest<HTMLAnchorElement>(`a[${FIXED_ATTR}]`);
   };
 
   const onEarly = (event: Event): void => {
@@ -418,6 +603,11 @@ export function mountChatPathButtons(
       onFixedAnchor(event);
       return;
     }
+    // Drawn for another thread, whose workspace said the path exists: that
+    // thread's scanner answers, or, when it has stopped, bb does until this
+    // scanner's sweep adopts the button. Pane ownership alone misses both when
+    // no pane is known or the other pane's scanner is between mounts.
+    if (inOtherPane(button) || button.dataset[THREAD_ATTR] !== threadId) return;
     event.stopImmediatePropagation();
     event.stopPropagation();
     if (event.type !== "click" && event.type !== "auxclick") return;
@@ -435,7 +625,12 @@ export function mountChatPathButtons(
    */
   const onFixedAnchor = (event: Event): void => {
     const anchor = fixedAnchorFrom(event.target);
-    if (anchor === null) return;
+    // A fix made for another thread is answered by that thread's scanner, or,
+    // when that one has stopped, by bb until this scanner's sweep re-asks.
+    if (anchor === null || inOtherPane(anchor) || anchor.dataset[THREAD_ATTR] !== threadId) return;
+    // A link that changed since its fix is bb's until the sweep re-asks.
+    const href = anchorTargetPath(anchor);
+    if (href === null || anchor.dataset[FIXED_KEY] !== anchorKey(textOf(anchor), href)) return;
     const absolutePath = anchor.dataset.fileExplorerFixedPath;
     const hostId = anchor.dataset.fileExplorerFixedHost;
     if (absolutePath === undefined || hostId === undefined) return;
@@ -497,7 +692,19 @@ export function mountChatPathButtons(
     );
     if (relevant) queueSweep();
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  // React changes a kept link's href, or a text node's value, in place, and a
+  // scanner lives as long as its thread, so it must see those changes itself.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributeFilter: ["href"],
+  });
+  const self: RunningScanner = { threadId, header, wake: queueSweep, stop: () => stopper.abort() };
+  scanners.add(self);
+  // Stop working, but leave the buttons and link fixes where they are: the
+  // next scanner adopts them on its first sweep. Removing them here made every
+  // restart blink. The click listeners go with `signal`.
   signal.addEventListener(
     "abort",
     () => {
@@ -505,15 +712,11 @@ export function mountChatPathButtons(
       if (sweepTimer !== null) window.clearTimeout(sweepTimer);
       if (flushTimer !== null) window.clearTimeout(flushTimer);
       if (anchorTimer !== null) window.clearTimeout(anchorTimer);
-      for (const button of Array.from(
-        document.querySelectorAll(`button[${BUTTON_ATTR}]`),
-      )) {
-        button.remove();
-      }
-      for (const anchor of Array.from(
-        document.querySelectorAll<HTMLAnchorElement>(`a[${FIXED_ATTR}]`),
-      )) {
-        clearFix(anchor);
+      scanners.delete(self);
+      // What this thread made is now the other scanners' to reconcile. Nothing
+      // here touches the document, so no chat change would tell them.
+      if (!isRunning(threadId)) {
+        for (const scanner of scanners) scanner.wake();
       }
     },
     { once: true },

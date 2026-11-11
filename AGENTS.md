@@ -23,6 +23,7 @@ bun test              # Run the unit tests
   - `experimental_appOverlay` → `GlobalFileExplorerRail` (the persistent right rail)
   - `experimental_threadHeaderAction` → `FileExplorerHeaderAction` (toggle button + chat path bridge)
   - `sidebarFooterAction` → toggle rail open (icon: `FileText`)
+  - `contentScripts` → `chatPathButtonsContentScript`, whose disposer removes the chat reveal buttons and link fixes when bb deactivates the plugin
   - `commandPaletteAction` ×2 → "File Explorer: find a file" (opens + focuses search) and "File Explorer: show pinned folder"
   - `composer.customize` for `NewThreadFileExplorerAction` (new-thread scope) and `ChatDraftBridge` (thread/queued-message/side-chat/new-thread scopes)
 
@@ -75,7 +76,7 @@ bun test              # Run the unit tests
 - **`rail-width.ts`** — Rail width sizing. Default 216px, range 160–720px. Clamped so chat retains at least 320px. Persisted via localStorage. Live drag updates without persisting.
 - **`rail-inset.ts`** — Body padding reservation for the fixed rail overlay. Acquired by rail, released on cleanup.
 - **`chat-draft-bus.ts`** — Bus for adding paths to open chat drafts. Stack-based (last registered composer wins). Scope keys derived from `PluginComposerScope` (thread, queued-message, side-chat, new-thread).
-- **`chat-path-buttons.ts`** — DOM scanner that mounts "reveal in tree" buttons on chat path links. Caches verdicts per thread with TTL. Uses `createTimedCache` for path existence and anchor fixes.
+- **`chat-path-buttons.ts`** — DOM scanner that mounts "reveal in tree" buttons on chat path links. Caches verdicts per thread with TTL. Uses `createTimedCache` for path existence and anchor fixes. Cleanup (abort) leaves buttons and link fixes in the document and wakes the other running scanners, which adopt them and reconcile anything stale; only `removeChatPathButtons` (the content script's disposer) stops every scanner and takes them out; a click on a button is answered only by a scanner of the thread it was drawn for; a scanner leaves the messages of a split pane (`data-split-pane-id`) whose thread header holds another scanner's bridge to that scanner, and, where no pane says, leaves a button or fix another running scanner made; `ChatPathBridge` restarts the scanner only when `threadId` changes.
 - **`reveal-bus.ts`** — One-slot hand-off between chat content scripts and the mounted tree. Pending requests are delivered when the tree subscribes.
 - **`search-focus-bus.ts`** — One-slot hand-off for command-palette "find a file" focus requests.
 - **`surface-navigation.ts`** — Registers and resolves `useBbNavigate` per thread route. Keyed by threadId (or "new-thread").

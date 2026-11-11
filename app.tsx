@@ -3,6 +3,7 @@ import { FileExplorerHeaderAction } from "@/components/FileExplorerHeaderAction"
 import { GlobalFileExplorerRail } from "@/components/GlobalFileExplorerRail";
 import { NewThreadFileExplorerAction } from "@/components/NewThreadFileExplorerAction";
 import { ChatDraftBridge } from "@/components/ChatDraftBridge";
+import { chatPathButtonsContentScript } from "@/lib/chat-path-buttons";
 import { FILE_DIFF_ACTION_ID, FileDiffPanel } from "@/components/FileDiffPanel";
 import { requestSearchFocus } from "@/lib/search-focus-bus";
 import { toggleRailOpen, writeStoredOpen } from "@/lib/rail-state";
@@ -17,6 +18,10 @@ export default definePluginApp((app) => {
     title: "Workbench Explorer",
     component: ({ threadId }) => <FileExplorerHeaderAction threadId={threadId} />,
   });
+  // Takes the header's chat reveal buttons out when bb deactivates the plugin.
+  // Optional: a host that predates content scripts keeps them until the
+  // message re-renders.
+  app.contentScripts?.register(chatPathButtonsContentScript);
 
   app.slots.threadPanelAction({
     id: FILE_DIFF_ACTION_ID,
